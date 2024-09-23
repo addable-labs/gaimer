@@ -1,15 +1,15 @@
 <script setup>
 import { computed, ref } from "vue";
-
+import { useQuasar } from "quasar";
 import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
 
+const $q = useQuasar();
 const appStore = useAppStore();
 const { gameDescription, generating } = storeToRefs(appStore);
 
 const descriptionMaxLength = ref(4096);
 const userInput = ref("");
-const response = ref("");
 
 async function handleUserInput() {
     // Trim user input of any whitespace characters
@@ -29,12 +29,13 @@ const remainingCharactersText = computed(() => {
 </script>
 
 <template>
-    <div>
+    <q-toolbar>
         <q-input
             dense
             filled
             autogrow
             style="width: 100%"
+            :dark="$q.dark.isActive"
             type="textarea"
             id="user-input"
             :label="
@@ -44,7 +45,7 @@ const remainingCharactersText = computed(() => {
             "
             v-model="userInput"
             :maxlength="descriptionMaxLength"
-            @keydown.command.enter.prevent="handleUserInput"
+            @keydown.command.enter.prevent="handleUserInput()"
         >
             <template v-slot:append>
                 <q-btn
@@ -55,10 +56,12 @@ const remainingCharactersText = computed(() => {
                     stack-label
                     :loading="generating"
                     @click="handleUserInput()"
-                />
+                >
+                    <template v-slot:loading>
+                        <q-spinner-gears color="primary" />
+                    </template>
+                </q-btn>
             </template>
         </q-input>
-    </div>
-
-    <p>{{ response }}</p>
+    </q-toolbar>
 </template>

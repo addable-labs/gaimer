@@ -1,5 +1,30 @@
+@font-face {
+    font-family: JetBrainsMono;
+    src: url(./assets/fonts/JetBrainsMono-Light.woff2) format("woff2");
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+}
+@font-face {
+    font-family: JetBrainsMono;
+    src: url(./assets/fonts/JetBrainsMono-Regular.woff2) format("woff2");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+@font-face {
+    font-family: JetBrainsMono;
+    src: url(./assets/fonts/JetBrainsMono-Medium.woff2) format("woff2");
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+}
+
+.JetBrainsMono-font {
+    font-family: "JetBrainsMono";
+}
 :root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+    font-family: JetBrainsMono, Avenir, Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 24px;
     font-weight: 400;
@@ -22,7 +47,6 @@
     justify-content: center;
     text-align: center;
 }
-
 
 h1 {
     font-size: 2rem !important;

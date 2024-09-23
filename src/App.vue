@@ -1,5 +1,6 @@
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
+import { useQuasar } from "quasar";
 import { useAppStore } from "./stores/app-store.js";
 import { storeToRefs } from "pinia";
 import logger from "./helpers/logger.js";
@@ -8,6 +9,7 @@ import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameContainer from "./components/GameContainer.vue";
 
+const $q = useQuasar();
 const appStore = useAppStore();
 const { gameDescription, apiKey, generating } = storeToRefs(appStore);
 
@@ -31,6 +33,8 @@ const generateGame = async (prompt) => {
             Only return the content inside those tags that can be added dynamically to a div or similar container.
 
             You will receive the game description in the user prompt.
+
+            Important: Set screen width to ${$q.screen.width * 0.8}px and height to 80% of ${$q.screen.height * 0.8}px.
 
             Important: Do not include any comments, explanations, or any additional text.
             Only include the necessary content.
@@ -78,156 +82,60 @@ watch(gameDescription, (newVal) => {
 const generatingMessage = ref("Generating game...");
 const greetingMessage = ref(`
     Welcome to Gaimer, your very own game generator assistant!
-    Describe your idea of a game as detailed as possible, click generate,
-    then sit back and relax while the assistant gets your game ready to play!
+    Describe your idea of a game as detailed as possible, click the send button,
+    then sit back and relax while the assistant generates your game ready to play!
 `);
 </script>
 
 <template>
-    <q-layout view="lHh Lpr lfF">
+    <q-layout view="lHh Lpr lfF" class="JetBrainsMono-font text-primary">
         <q-page-container>
-            <q-page class="" id="page">
-                <div v-if="apiKey == ''">
-                    <Settings />
-                </div>
+            <q-page id="page">
+                <q-card
+                    flat
+                    class="absolute-center q-pa-lg JetBrainsMono-font text-primary"
+                >
+                    <div v-if="apiKey == ''">
+                        <Settings />
+                    </div>
 
-                <div v-else>
-                    <div v-if="generating">
-                        {{ generatingMessage }}
-                    </div>
-                    <div v-else-if="generationDone">
-                        <GameContainer
-                            :game-content="assistantMessage.content"
-                        />
-                    </div>
                     <div v-else>
-                        {{ greetingMessage }}
+                        <div v-if="generating">
+                            {{ generatingMessage }}
+                            <p />
+                            <q-spinner-gears color="primary" size="8em" />
+                        </div>
+                        <div v-else-if="generationDone">
+                            <GameContainer
+                                class="center"
+                                :game-content="assistantMessage.content"
+                            />
+                        </div>
+                        <div v-else>
+                            {{ greetingMessage }}
+                        </div>
                     </div>
-                </div>
+                </q-card>
             </q-page>
         </q-page-container>
-        <q-footer>
+        <q-footer :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
             <UserInput />
         </q-footer>
     </q-layout>
 </template>
 
-<style scoped>
-.logo.vite:hover {
-    filter: drop-shadow(0 0 2em #747bff);
+<style>
+/* Hide scrollbars on Macs (and WebKit based webviews)  */
+::-webkit-scrollbar {
+    display: none;
 }
-
-.logo.vue:hover {
-    filter: drop-shadow(0 0 2em #249b73);
+/* Hide scrollbars on Windows (in IE and Edge) */
+body {
+    overflow: auto;
+    -ms-overflow-style: none;
 }
-
-:root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-    font-size: 16px;
-    line-height: 24px;
-    font-weight: 400;
-
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-text-size-adjust: 100%;
-}
-
-.container {
-    margin: 0;
-    padding-top: 10vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
-}
-
-.logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: 0.75s;
-}
-
-.logo.tauri:hover {
-    filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-    display: flex;
-    justify-content: center;
-}
-
-a {
-    font-weight: 500;
-    color: #646cff;
-    text-decoration: inherit;
-}
-
-a:hover {
-    color: #535bf2;
-}
-
-h1 {
-    text-align: center;
-}
-
-input,
-button {
-    border-radius: 8px;
-    border: 1px solid transparent;
-    padding: 0.6em 1.2em;
-    font-size: 1em;
-    font-weight: 500;
-    font-family: inherit;
-    color: #0f0f0f;
-    background-color: #ffffff;
-    transition: border-color 0.25s;
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-    cursor: pointer;
-}
-
-button:hover {
-    border-color: #396cd8;
-}
-button:active {
-    border-color: #396cd8;
-    background-color: #e8e8e8;
-}
-
-input,
-button {
-    outline: none;
-}
-
-#greet-input {
-    margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        color: #f6f6f6;
-        background-color: #2f2f2f;
-    }
-
-    a:hover {
-        color: #24c8db;
-    }
-
-    input,
-    button {
-        color: #ffffff;
-        background-color: #0f0f0f98;
-    }
-    button:active {
-        background-color: #0f0f0f69;
-    }
+/* Hide scrollbars in Firefox */
+html {
+    scrollbar-width: none;
 }
 </style>

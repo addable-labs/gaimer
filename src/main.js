@@ -12,14 +12,14 @@ import quasarIconSet from "quasar/icon-set/svg-mdi-v7";
 import "@quasar/extras/mdi-v7/mdi-v7.css";
 import "quasar/dist/quasar.css";
 // Custom styles
-// import "./styles.css";
+import "./styles.css";
 
 app.use(Quasar, {
     plugins: { Dark, Dialog, Notify }, // import Quasar plugins and add here
     config: {
         dark: "auto",
         notify: {},
-        brand: {},
+        brand: { primary: "#83F35D", secondary: "#FF6F00" },
     },
     iconSet: quasarIconSet,
     extras: ["material-icons", "mdi-v7"],

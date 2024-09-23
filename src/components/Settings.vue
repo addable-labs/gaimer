@@ -6,33 +6,39 @@ import { storeToRefs } from "pinia";
 const appStore = useAppStore();
 const { apiKey } = storeToRefs(appStore);
 
-const message = ref("");
-const userInput = ref("");
+const userInput = ref(apiKey.value);
 
 async function handleInput() {
     // Trim user input of any whitespace characters
     userInput.value = userInput.value.replace(/^\s+|\s+$/g, "");
 
     if (userInput.value == "") {
-        message.value = "You need to enter an API key!";
         return;
     }
 
     apiKey.value = userInput.value;
-    message.value = "Successfully set API key!";
 }
 </script>
 
 <template>
-    <q-input
-        dense
-        filled
-        autofocus
-        id="user-input"
-        v-model="userInput"
-        placeholder="Enter your API key..."
-    />
-    <q-btn color="primary" label="Save" @click="handleInput()" />
-
-    <p>{{ message }}</p>
+    <div class="q-gutter-sm" style="width: 400px">
+        <q-input
+            dense
+            filled
+            autofocus
+            id="user-input"
+            v-model="userInput"
+            label="Enter your API key..."
+            @keydown.enter="handleInput()"
+        />
+        <q-btn
+            dense
+            flat
+            icon="mdi-content-save"
+            color="primary"
+            stack-label
+            label="Save"
+            @click="handleInput()"
+        />
+    </div>
 </template>
