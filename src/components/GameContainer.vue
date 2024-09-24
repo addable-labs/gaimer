@@ -1,14 +1,11 @@
 <script setup>
-import { nextTick, ref, watchEffect } from "vue";
+import { nextTick, watchEffect } from "vue";
 
 const { gameContent } = defineProps(["gameContent"]);
 
 async function runGame() {
     const gameDescription =
         "Create a simple pong game with two paddles and a ball.";
-
-    // Call the function to generate the game content
-    // const gameContent = await generateGame(gameDescription);
 
     // Dynamically insert the generated content into the #game-container div
     const container = document.getElementById("game-container");
@@ -22,7 +19,6 @@ async function runGame() {
 }
 
 watchEffect(async (gameContent) => {
-    console.log("gameContent changed");
     await nextTick();
     runGame();
 });

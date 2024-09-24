@@ -33,6 +33,7 @@ const remainingCharactersText = computed(() => {
         <q-input
             dense
             filled
+            autofocus
             autogrow
             style="width: 100%"
             :dark="$q.dark.isActive"

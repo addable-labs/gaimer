@@ -1,45 +1,42 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useAppStore } from "./stores/app-store.js";
 import { storeToRefs } from "pinia";
 import logger from "./helpers/logger.js";
-import OpenAI from "./helpers/openai.js";
+import OpenAIClient from "./helpers/openai.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameContainer from "./components/GameContainer.vue";
+import { getSystemMessage } from "./helpers/prompts.js";
 
 const $q = useQuasar();
 const appStore = useAppStore();
 const { gameDescription, apiKey, generating } = storeToRefs(appStore);
 
-const openAI = OpenAI(apiKey.value);
+const openAI = OpenAIClient(apiKey.value);
 const assistantMessage = ref({ role: "assistant", content: "" });
 
 const generationDone = ref(false);
+
+const gameContainerSize = ref({
+    width: document.documentElement.clientWidth - 50,
+    height: document.documentElement.clientHeight - 100,
+});
+
+const onResize = () => {
+    gameContainerSize.value = {
+        width: document.documentElement.clientWidth - 50,
+        height: document.documentElement.clientHeight - 100,
+    };
+};
 
 const generateGame = async (prompt) => {
     generating.value = true;
     generationDone.value = false;
     let systemMessage = {
         role: "system",
-        content: `
-            You are an expert in creating HTML5 JavaScript games.
-            Given a description of a game, generate only the HTML and JavaScript content that can be directly added to an existing DOM element.
-
-            Do not include the <html>, <head>, or <body> tags.
-            Do not use Markdown or code block formatting.
-            Only return the plain HTML and JavaScript code.
-            Only return the content inside those tags that can be added dynamically to a div or similar container.
-
-            You will receive the game description in the user prompt.
-
-            Important: Set screen width to ${$q.screen.width * 0.8}px and height to 80% of ${$q.screen.height * 0.8}px.
-
-            Important: Do not include any comments, explanations, or any additional text.
-            Only include the necessary content.
-            Return the plain HTML and JavaScript code.
-            `,
+        content: getSystemMessage(gameContainerSize),
     };
 
     if (prompt == "") {
@@ -50,12 +47,13 @@ const generateGame = async (prompt) => {
     let userMessage = { role: "user", content: prompt };
 
     openAI
-        .createChatCompletion([systemMessage, userMessage], false, null)
-        .then((response) => response.json())
-        .then((json) => {
-            console.log(json);
-            assistantMessage.value.role = json.choices[0].message.role;
-            assistantMessage.value.content = json.choices[0].message.content;
+        .createChatCompletion([systemMessage, userMessage])
+        .then((response) => {
+            console.log(response.choices[0].message.content);
+            assistantMessage.value.role = response.choices[0].message.role;
+            assistantMessage.value.content = JSON.parse(
+                response.choices[0].message.content,
+            ).code;
         })
         .catch((error) => {
             console.error(error);
@@ -91,31 +89,47 @@ const greetingMessage = ref(`
     <q-layout view="lHh Lpr lfF" class="JetBrainsMono-font text-primary">
         <q-page-container>
             <q-page id="page">
-                <q-card
-                    flat
-                    class="absolute-center q-pa-lg JetBrainsMono-font text-primary"
-                >
-                    <div v-if="apiKey == ''">
-                        <Settings />
-                    </div>
+                <q-resize-observer @resize="onResize" />
+                <div v-if="apiKey == ''">
+                    <Settings />
+                </div>
 
-                    <div v-else>
-                        <div v-if="generating">
-                            {{ generatingMessage }}
-                            <p />
-                            <q-spinner-gears color="primary" size="8em" />
-                        </div>
-                        <div v-else-if="generationDone">
-                            <GameContainer
-                                class="center"
-                                :game-content="assistantMessage.content"
-                            />
-                        </div>
-                        <div v-else>
-                            {{ greetingMessage }}
-                        </div>
-                    </div>
-                </q-card>
+                <div v-else>
+                    <q-card
+                        v-if="generating"
+                        bordered
+                        flat
+                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary"
+                    >
+                        {{ generatingMessage }}
+                        <p />
+                        <q-spinner-gears color="primary" size="8em" />
+                    </q-card>
+
+                    <q-card
+                        v-else-if="generationDone"
+                        bordered
+                        flat
+                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary"
+                        style="
+                            width: calc(100vw - 50px);
+                            height: calc(100vh - 100px);
+                        "
+                    >
+                        <GameContainer
+                            :game-content="assistantMessage.content"
+                        />
+                    </q-card>
+
+                    <q-card
+                        v-else
+                        bordered
+                        flat
+                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary text-body2 text-uppercase"
+                    >
+                        {{ greetingMessage }}
+                    </q-card>
+                </div>
             </q-page>
         </q-page-container>
         <q-footer :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
