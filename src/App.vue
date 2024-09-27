@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useAppStore } from "./stores/app-store.js";
+import { usePersistedStore } from "./stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import logger from "./helpers/logger.js";
 import OpenAIClient from "./helpers/openai.js";
@@ -12,7 +13,9 @@ import { getSystemMessage } from "./helpers/prompts.js";
 
 const $q = useQuasar();
 const appStore = useAppStore();
-const { gameDescription, apiKey, generating } = storeToRefs(appStore);
+const persistedStore = usePersistedStore();
+const { gameDescription, generating } = storeToRefs(appStore);
+const { apiKey } = storeToRefs(persistedStore);
 
 const openAI = OpenAIClient(apiKey.value);
 const assistantMessage = ref({ role: "assistant", content: "" });

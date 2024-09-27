@@ -1,10 +1,10 @@
 <script setup>
 import { ref } from "vue";
-import { useAppStore } from "../stores/app-store.js";
+import { usePersistedStore } from "../stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 
-const appStore = useAppStore();
-const { apiKey } = storeToRefs(appStore);
+const persistedStore = usePersistedStore();
+const { apiKey } = storeToRefs(persistedStore);
 
 const userInput = ref(apiKey.value);
 
