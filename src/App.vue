@@ -10,6 +10,8 @@ import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameContainer from "./components/GameContainer.vue";
 import { getSystemMessage } from "./helpers/prompts.js";
+import { initDB, saveGame, listGames, loadGame, deleteGame } from "./helpers/indexeddb.js";
+import GameList from "./components/GameList.vue";
 
 const $q = useQuasar();
 const appStore = useAppStore();
@@ -57,6 +59,12 @@ const generateGame = async (prompt) => {
             assistantMessage.value.content = JSON.parse(
                 response.choices[0].message.content,
             ).code;
+
+            // Save the game to IndexedDB
+            saveGame({
+                prompt: prompt,
+                response: assistantMessage.value.content,
+            });
         })
         .catch((error) => {
             console.error(error);
@@ -69,6 +77,33 @@ const generateGame = async (prompt) => {
 
     // Wait for Vue to update the DOM and make the new message element available, before continuing
     await nextTick();
+};
+
+const listAllGames = async () => {
+    try {
+        const games = await listGames();
+        console.log(games);
+    } catch (error) {
+        console.error("Failed to list games:", error);
+    }
+};
+
+const loadSelectedGame = async (id) => {
+    try {
+        const game = await loadGame(id);
+        console.log(game);
+    } catch (error) {
+        console.error("Failed to load game:", error);
+    }
+};
+
+const deleteSelectedGame = async (id) => {
+    try {
+        await deleteGame(id);
+        console.log("Game deleted successfully");
+    } catch (error) {
+        console.error("Failed to delete game:", error);
+    }
 };
 
 watch(gameDescription, (newVal) => {
@@ -138,6 +173,8 @@ const greetingMessage = ref(`
         <q-footer :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
             <UserInput />
         </q-footer>
+        <q-btn @click="listAllGames">List Games</q-btn>
+        <GameList @loadGame="loadSelectedGame" @deleteGame="deleteSelectedGame" />
     </q-layout>
 </template>
 
