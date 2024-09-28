@@ -1,16 +1,16 @@
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { nextTick, onMounted, ref, watch, watchEffect } from "vue";
 import { useQuasar } from "quasar";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import logger from "./helpers/logger.js";
 import OpenAIClient from "./helpers/openai.js";
+import IndexedDBClient from "./helpers/indexeddb.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameContainer from "./components/GameContainer.vue";
 import { getSystemMessage } from "./helpers/prompts.js";
-import { initDB, saveGame, listGames, loadGame, deleteGame } from "./helpers/indexeddb.js";
 import GameList from "./components/GameList.vue";
 
 const $q = useQuasar();
@@ -20,10 +20,11 @@ const { gameDescription, generating } = storeToRefs(appStore);
 const { apiKey } = storeToRefs(persistedStore);
 
 const openAI = OpenAIClient(apiKey.value);
-const assistantMessage = ref({ role: "assistant", content: "" });
+const idbClient = IndexedDBClient();
 
-const generationDone = ref(false);
+const drawer = ref(false);
 
+let game = ref({ id: "", prompts: [] });
 const gameContainerSize = ref({
     width: document.documentElement.clientWidth - 50,
     height: document.documentElement.clientHeight - 100,
@@ -37,8 +38,7 @@ const onResize = () => {
 };
 
 const generateGame = async (prompt) => {
-    generating.value = true;
-    generationDone.value = false;
+    state.value = "generating";
     let systemMessage = {
         role: "system",
         content: getSystemMessage(gameContainerSize),
@@ -54,58 +54,76 @@ const generateGame = async (prompt) => {
     openAI
         .createChatCompletion([systemMessage, userMessage])
         .then((response) => {
-            console.log(response.choices[0].message.content);
-            assistantMessage.value.role = response.choices[0].message.role;
-            assistantMessage.value.content = JSON.parse(
-                response.choices[0].message.content,
-            ).code;
+            // console.log(response.choices[0].message.content);
+            let jsonResponse = JSON.parse(response.choices[0].message.content);
+
+            let timestamp = Date.now().toString();
+            game.value = {
+                timestamp: timestamp,
+                prompts: [userMessage],
+                ...jsonResponse,
+            };
 
             // Save the game to IndexedDB
-            saveGame({
-                prompt: prompt,
-                response: assistantMessage.value.content,
-            });
+            idbClient
+                .putItem(JSON.stringify(game.value), timestamp)
+                .then(() => {
+                    state.value = "done";
+                    console.log("Game generated");
+                })
+                .catch((error) => {
+                    console.error("Failed to save game:", error);
+                });
         })
         .catch((error) => {
             console.error(error);
-        })
-        .finally(() => {
-            logger.log("Game generated successfully!");
-            generating.value = false;
-            generationDone.value = true;
+            state.value = "error";
         });
-
     // Wait for Vue to update the DOM and make the new message element available, before continuing
     await nextTick();
 };
 
-const listAllGames = async () => {
-    try {
-        const games = await listGames();
-        console.log(games);
-    } catch (error) {
-        console.error("Failed to list games:", error);
-    }
+const loadGame = async (id) => {
+    state.value = "loading";
+    idbClient
+        .getItem(id)
+        .then((item) => {
+            game.value = JSON.parse(item);
+            setTimeout(() => {
+                state.value = "done";
+            }, gameStates.value.loading.duration);
+        })
+        .catch((error) => {
+            console.error("Failed to load game:", error);
+            state.value = "error";
+        });
 };
 
-const loadSelectedGame = async (id) => {
-    try {
-        const game = await loadGame(id);
-        console.log(game);
-    } catch (error) {
-        console.error("Failed to load game:", error);
-    }
-};
+const greetingMessage = `
+    Welcome to Gaimer, your very own game generator assistant!
+    Describe your idea of a game as detailed as possible, click the send button,
+    then sit back and relax while the assistant generates your game ready to play!
+`;
 
-const deleteSelectedGame = async (id) => {
-    try {
-        await deleteGame(id);
-        console.log("Game deleted successfully");
-    } catch (error) {
-        console.error("Failed to delete game:", error);
-    }
-};
+const state = ref("idle");
+const gameStates = ref({
+    idle: { message: greetingMessage, style: "", duration: 0 },
+    generating: { message: "Generating game...", style: "", duration: 0 },
+    loading: { message: "Loading game...", style: "", duration: 1000 },
+    done: {
+        message: "",
+        style: "width: calc(100vw - 50px);height: calc(100vh - 150px);",
+        duration: 0,
+    },
+    error: { message: "Failed to load game", style: "", duration: 0 },
+});
 
+// Make sure to initiate the IndexedDB object store
+onMounted(() => {
+    idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
+});
+
+// Watch for new game descriptions from the user input
 watch(gameDescription, (newVal) => {
     if (gameDescription.value == "") {
         return;
@@ -115,16 +133,43 @@ watch(gameDescription, (newVal) => {
     gameDescription.value = "";
 });
 
-const generatingMessage = ref("Generating game...");
-const greetingMessage = ref(`
-    Welcome to Gaimer, your very own game generator assistant!
-    Describe your idea of a game as detailed as possible, click the send button,
-    then sit back and relax while the assistant generates your game ready to play!
-`);
+// Watch for changes in the game state
+watch(state, (newVal, oldVal) => {
+    console.log(`State changed: ${oldVal} -> ${newVal}`);
+});
+
+watch(game, (newVal) => {
+    if (newVal) {
+        console.log("Game loaded", game.value.title);
+    }
+});
 </script>
 
 <template>
-    <q-layout view="lHh Lpr lfF" class="JetBrainsMono-font text-primary">
+    <q-layout view="hHh Lpr lfF" class="JetBrainsMono-font text-primary">
+        <q-header>
+            <q-toolbar :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
+                <q-btn
+                    flat
+                    dense
+                    round
+                    icon="mdi-menu"
+                    aria-label="Meny"
+                    @click="drawer = !drawer"
+                />
+            </q-toolbar>
+        </q-header>
+        <q-drawer
+            v-model="drawer"
+            bordered
+            overlay
+            :darK="$q.dark.isActive"
+            :width="350"
+            @click="drawer = false"
+        >
+            <GameList @loadGame="loadGame" />
+        </q-drawer>
+
         <q-page-container>
             <q-page id="page">
                 <q-resize-observer @resize="onResize" />
@@ -134,38 +179,20 @@ const greetingMessage = ref(`
 
                 <div v-else>
                     <q-card
-                        v-if="generating"
                         bordered
                         flat
                         class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary"
+                        :style="gameStates[state].style"
                     >
-                        {{ generatingMessage }}
-                        <p />
-                        <q-spinner-gears color="primary" size="8em" />
-                    </q-card>
+                        {{ gameStates[state].message }}
 
-                    <q-card
-                        v-else-if="generationDone"
-                        bordered
-                        flat
-                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary"
-                        style="
-                            width: calc(100vw - 50px);
-                            height: calc(100vh - 100px);
-                        "
-                    >
-                        <GameContainer
-                            :game-content="assistantMessage.content"
+                        <q-spinner-gears
+                            v-if="state == 'generating' || state == 'loading'"
+                            class="q-pa-lg"
+                            color="primary"
+                            size="8em"
                         />
-                    </q-card>
-
-                    <q-card
-                        v-else
-                        bordered
-                        flat
-                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary text-body2 text-uppercase"
-                    >
-                        {{ greetingMessage }}
+                        <GameContainer v-if="state == 'done'" :game="game" />
                     </q-card>
                 </div>
             </q-page>
@@ -173,8 +200,6 @@ const greetingMessage = ref(`
         <q-footer :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
             <UserInput />
         </q-footer>
-        <q-btn @click="listAllGames">List Games</q-btn>
-        <GameList @loadGame="loadSelectedGame" @deleteGame="deleteSelectedGame" />
     </q-layout>
 </template>
 

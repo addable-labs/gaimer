@@ -1,55 +1,128 @@
 <template>
-  <q-dialog v-model="isDialogOpen">
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Game List</div>
-      </q-card-section>
-
-      <q-card-section>
-        <q-list>
-          <q-item v-for="game in games" :key="game.id">
-            <q-item-section>{{ game.prompt }}</q-item-section>
+    <q-list dense>
+        <q-item-label header>Game List</q-item-label>
+        <q-item
+            v-for="game in games"
+            :key="game.timestamp"
+            clickable
+            @click="$emit('loadGame', game.timestamp)"
+        >
             <q-item-section>
-              <q-btn @click="loadGame(game.id)" label="Load" />
-              <q-btn @click="deleteGame(game.id)" label="Delete" />
+                <q-item-label
+                    >{{ game.title }}
+                    <q-tooltip
+                        :delay="100"
+                        max-width="300px"
+                        transition-show="scale"
+                        transition-hide="scale"
+                    >
+                        {{ game.description }}
+                    </q-tooltip>
+                </q-item-label>
             </q-item-section>
-          </q-item>
-        </q-list>
-      </q-card-section>
-
-      <q-card-actions align="right">
-        <q-btn flat label="Close" v-close-popup />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+            <q-item-section side>
+                <div class="text-grey-8 q-gutter-xs">
+                    <q-btn
+                        class="gt-xs"
+                        dense
+                        flat
+                        icon="mdi-information"
+                        size="sm"
+                        @click="deleteGame(game.timestamp)"
+                    >
+                        <q-tooltip
+                            :delay="500"
+                            max-width="300px"
+                            transition-show="scale"
+                            transition-hide="scale"
+                        >
+                            {{ game.rules }}
+                            {{ game.elements }}
+                        </q-tooltip>
+                    </q-btn>
+                    <q-btn
+                        class="gt-xs"
+                        dense
+                        flat
+                        icon="mdi-gamepad-outline"
+                        size="sm"
+                        @click="deleteGame(game.timestamp)"
+                    >
+                        <q-tooltip
+                            :delay="500"
+                            max-width="300px"
+                            transition-show="scale"
+                            transition-hide="scale"
+                        >
+                            {{ game.elements.controls }}
+                        </q-tooltip>
+                    </q-btn>
+                    <q-btn
+                        class="gt-xs"
+                        dense
+                        flat
+                        icon="mdi-file-code"
+                        size="sm"
+                        @click="deleteGame(game.timestamp)"
+                    >
+                        <q-tooltip
+                            :delay="500"
+                            max-width="300px"
+                            transition-show="scale"
+                            transition-hide="scale"
+                        >
+                            {{ game.code }}
+                        </q-tooltip>
+                    </q-btn>
+                    <q-btn
+                        class="gt-xs"
+                        dense
+                        flat
+                        icon="mdi-delete"
+                        size="sm"
+                        @click="deleteGame(game.timestamp)"
+                    >
+                        <q-tooltip
+                            :delay="500"
+                            max-width="300px"
+                            transition-show="scale"
+                            transition-hide="scale"
+                        >
+                            Delete
+                        </q-tooltip>
+                    </q-btn>
+                </div>
+            </q-item-section>
+        </q-item>
+        <q-separator spaced />
+    </q-list>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import { listGames, loadGame, deleteGame } from '../helpers/indexeddb.js';
+import { ref, onMounted } from "vue";
+import IndexedDBClient from "../helpers/indexeddb.js";
 
-const isDialogOpen = ref(false);
+const idbClient = IndexedDBClient();
 const games = ref([]);
 
-const fetchGames = async () => {
-  games.value = await listGames();
-};
-
-const loadGame = async (id) => {
-  const game = await loadGame(id);
-  // Emit the loaded game to the parent component
-  emit('loadGame', game);
-};
-
 const deleteGame = async (id) => {
-  await deleteGame(id);
-  // Refresh the game list after deletion
-  fetchGames();
-  // Emit the deleted game ID to the parent component
-  emit('deleteGame', id);
+    idbClient
+        .deleteItem(id)
+        .then(() => {
+            games.value = games.value.filter((game) => game.timestamp !== id);
+            console.log(`Delete game: ${id}`);
+        })
+        .catch((error) => {
+            console.error(`Error deleting game: ${id}`, error);
+        });
 };
 
-onMounted(() => {
-  fetchGames();
+onMounted(async () => {
+    await idbClient.initDB();
+    idbClient.listItems().then((items) => {
+        items.forEach((item) => {
+            games.value.push(JSON.parse(item));
+        });
+    });
 });
 </script>

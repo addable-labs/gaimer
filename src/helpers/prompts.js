@@ -28,7 +28,6 @@ export const getSystemMessage = (gameContainerSize) => {
         - Return only a valid JSON object in the response, using the following schema:
 
         {
-            "id": "Unique ID (epoch time)",
             "title": "Game Title",
             "description": "Game Description",
             "rules": "Game Rules Description",

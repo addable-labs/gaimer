@@ -1,91 +1,106 @@
 const DB_NAME = "GaimerDB";
-const DB_VERSION = 1;
+const DB_VERSION = 21;
 const STORE_NAME = "games";
 
-let db;
+const IndexedDBClient = () => {
+    let db = null;
 
-export function initDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+    function initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        request.onupgradeneeded = (event) => {
-            db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
-            }
-        };
+            request.onupgradeneeded = (event) => {
+                db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME, {
+                        keyPath: "id",
+                        autoIncrement: true,
+                    });
+                }
+            };
 
-        request.onsuccess = (event) => {
-            db = event.target.result;
-            resolve();
-        };
+            request.onsuccess = (event) => {
+                db = event.target.result;
+                resolve();
+            };
 
-        request.onerror = (event) => {
-            reject(event.target.error);
-        };
-    });
-}
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
 
-export function saveGame(game) {
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.add(game);
+    function putItem(item, key) {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.put(item, key);
 
-        request.onsuccess = () => {
-            resolve();
-        };
+            request.onsuccess = () => {
+                resolve();
+            };
 
-        request.onerror = (event) => {
-            reject(event.target.error);
-        };
-    });
-}
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
 
-export function listGames() {
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], "readonly");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
+    function listItems() {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], "readonly");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.getAll();
 
-        request.onsuccess = (event) => {
-            resolve(event.target.result);
-        };
+            request.onsuccess = (event) => {
+                resolve(event.target.result);
+            };
 
-        request.onerror = (event) => {
-            reject(event.target.error);
-        };
-    });
-}
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
 
-export function loadGame(id) {
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], "readonly");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(id);
+    function getItem(key) {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], "readonly");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get(key);
 
-        request.onsuccess = (event) => {
-            resolve(event.target.result);
-        };
+            request.onsuccess = (event) => {
+                resolve(event.target.result);
+            };
 
-        request.onerror = (event) => {
-            reject(event.target.error);
-        };
-    });
-}
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
 
-export function deleteGame(id) {
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(id);
+    function deleteItem(id) {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.delete(id);
 
-        request.onsuccess = () => {
-            resolve();
-        };
+            request.onsuccess = () => {
+                resolve();
+            };
 
-        request.onerror = (event) => {
-            reject(event.target.error);
-        };
-    });
-}
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
+
+    return {
+        initDB,
+        putItem,
+        getItem,
+        listItems,
+        deleteItem,
+    };
+};
+
+export default IndexedDBClient;

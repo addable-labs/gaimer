@@ -1,5 +1,4 @@
 import { fetch } from "@tauri-apps/plugin-http";
-import logger from "./logger";
 import OpenAI from "openai";
 
 const OpenAIClient = (apiKey) => {
