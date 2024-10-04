@@ -19,11 +19,11 @@ async function runGame() {
 
 const gameInfo = ref({
     title: {
-        text: game.elements.controls,
+        text: game.controls,
         icon: "mdi-gamepad-outline",
     },
     description: {
-        text: `${game.rules} ${game.elements.goals}`,
+        text: `${game.rules} ${game.goals}`,
         icon: "mdi-book-open-variant-outline",
     },
 });
@@ -32,7 +32,7 @@ const displayNotification = (message) => {
     $q.notify({
         message: message,
         position: "top",
-        timeout: 2000,
+        timeout: 3000,
         closeBtn: "OK",
         progress: true,
     });
@@ -48,12 +48,7 @@ watchEffect(async (game) => {
 <template>
     <div id="game-container"></div>
     <div id="game-info">
-        <q-card
-            dense
-            flat
-            class="JetBrainsMono-font text-primary"
-            :dark="$q.dark.isActive"
-        >
+        <q-card dense flat class="JetBrainsMono-font text-primary" dark>
             <div class="row">
                 <div class="col">
                     <q-btn

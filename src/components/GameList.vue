@@ -1,14 +1,9 @@
 <template>
-    <q-list dense>
+    <q-list>
         <q-item-label header>Game List</q-item-label>
-        <q-item
-            v-for="game in games"
-            :key="game.timestamp"
-            clickable
-            @click="$emit('loadGame', game.timestamp)"
-        >
+        <q-item v-for="game in games" :key="game.id" clickable>
             <q-item-section>
-                <q-item-label
+                <q-item-label @click="$emit('loadGame', game.id)"
                     >{{ game.title }}
                     <q-tooltip
                         :delay="100"
@@ -22,14 +17,7 @@
             </q-item-section>
             <q-item-section side>
                 <div class="text-grey-8 q-gutter-xs">
-                    <q-btn
-                        class="gt-xs"
-                        dense
-                        flat
-                        icon="mdi-information"
-                        size="sm"
-                        @click="deleteGame(game.timestamp)"
-                    >
+                    <q-btn dense flat icon="mdi-information" size="sm">
                         <q-tooltip
                             :delay="500"
                             max-width="300px"
@@ -37,50 +25,24 @@
                             transition-hide="scale"
                         >
                             {{ game.rules }}
-                            {{ game.elements }}
                         </q-tooltip>
                     </q-btn>
-                    <q-btn
-                        class="gt-xs"
-                        dense
-                        flat
-                        icon="mdi-gamepad-outline"
-                        size="sm"
-                        @click="deleteGame(game.timestamp)"
-                    >
+                    <q-btn dense flat icon="mdi-gamepad-outline" size="sm">
                         <q-tooltip
                             :delay="500"
                             max-width="300px"
                             transition-show="scale"
                             transition-hide="scale"
                         >
-                            {{ game.elements.controls }}
+                            {{ game.controls }}
                         </q-tooltip>
                     </q-btn>
                     <q-btn
-                        class="gt-xs"
-                        dense
-                        flat
-                        icon="mdi-file-code"
-                        size="sm"
-                        @click="deleteGame(game.timestamp)"
-                    >
-                        <q-tooltip
-                            :delay="500"
-                            max-width="300px"
-                            transition-show="scale"
-                            transition-hide="scale"
-                        >
-                            {{ game.code }}
-                        </q-tooltip>
-                    </q-btn>
-                    <q-btn
-                        class="gt-xs"
                         dense
                         flat
                         icon="mdi-delete"
                         size="sm"
-                        @click="deleteGame(game.timestamp)"
+                        @click="deleteGame(game.id)"
                     >
                         <q-tooltip
                             :delay="500"
@@ -109,7 +71,7 @@ const deleteGame = async (id) => {
     idbClient
         .deleteItem(id)
         .then(() => {
-            games.value = games.value.filter((game) => game.timestamp !== id);
+            games.value = games.value.filter((game) => game.id !== id);
             console.log(`Delete game: ${id}`);
         })
         .catch((error) => {
@@ -118,10 +80,11 @@ const deleteGame = async (id) => {
 };
 
 onMounted(async () => {
+    console.log("GameList mounted");
     await idbClient.initDB();
     idbClient.listItems().then((items) => {
         items.forEach((item) => {
-            games.value.push(JSON.parse(item));
+            games.value.push({ id: item.id, ...JSON.parse(item.content) });
         });
     });
 });

@@ -35,6 +35,7 @@ const onResize = () => {
         width: document.documentElement.clientWidth - 50,
         height: document.documentElement.clientHeight - 100,
     };
+    console.log(gameContainerSize.value);
 };
 
 const generateGame = async (prompt) => {
@@ -43,11 +44,6 @@ const generateGame = async (prompt) => {
         role: "system",
         content: getSystemMessage(gameContainerSize),
     };
-
-    if (prompt == "") {
-        prompt =
-            "Create a simple pong game with two paddles and a bouncing ball.";
-    }
 
     let userMessage = { role: "user", content: prompt };
 
@@ -58,26 +54,29 @@ const generateGame = async (prompt) => {
             let jsonResponse = JSON.parse(response.choices[0].message.content);
 
             let timestamp = Date.now().toString();
-            game.value = {
-                timestamp: timestamp,
-                prompts: [userMessage],
-                ...jsonResponse,
+            let newGame = {
+                id: timestamp,
+                prompt: JSON.stringify(prompt),
+                content: JSON.stringify(jsonResponse),
             };
 
             // Save the game to IndexedDB
             idbClient
-                .putItem(JSON.stringify(game.value), timestamp)
+                .addItem(newGame)
                 .then(() => {
+                    game.value = jsonResponse;
                     state.value = "done";
                     console.log("Game generated");
                 })
                 .catch((error) => {
+                    debugMessage.value = error;
                     console.error("Failed to save game:", error);
                 });
         })
         .catch((error) => {
             console.error(error);
             state.value = "error";
+            debugMessage.value = error;
         });
     // Wait for Vue to update the DOM and make the new message element available, before continuing
     await nextTick();
@@ -88,17 +87,19 @@ const loadGame = async (id) => {
     idbClient
         .getItem(id)
         .then((item) => {
-            game.value = JSON.parse(item);
+            game.value = JSON.parse(item.content);
             setTimeout(() => {
                 state.value = "done";
             }, gameStates.value.loading.duration);
         })
         .catch((error) => {
-            console.error("Failed to load game:", error);
+            console.error("Failed to load game:", id, error);
             state.value = "error";
+            debugMessage.value = error;
         });
 };
 
+const debugMessage = ref("no problems here!");
 const greetingMessage = `
     Welcome to Gaimer, your very own game generator assistant!
     Describe your idea of a game as detailed as possible, click the send button,
@@ -112,7 +113,7 @@ const gameStates = ref({
     loading: { message: "Loading game...", style: "", duration: 1000 },
     done: {
         message: "",
-        style: "width: calc(100vw - 50px);height: calc(100vh - 150px);",
+        style: "width: calc(95vw - 50px);height: calc(95vh - 150px);",
         duration: 0,
     },
     error: { message: "Failed to load game", style: "", duration: 0 },
@@ -148,7 +149,7 @@ watch(game, (newVal) => {
 <template>
     <q-layout view="hHh Lpr lfF" class="JetBrainsMono-font text-primary">
         <q-header>
-            <q-toolbar :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
+            <q-toolbar class="bg-grey-10">
                 <q-btn
                     flat
                     dense
@@ -163,9 +164,7 @@ watch(game, (newVal) => {
             v-model="drawer"
             bordered
             overlay
-            :darK="$q.dark.isActive"
-            :width="350"
-            @click="drawer = false"
+            @click.stop="drawer = false"
         >
             <GameList @loadGame="loadGame" />
         </q-drawer>
@@ -181,7 +180,7 @@ watch(game, (newVal) => {
                     <q-card
                         bordered
                         flat
-                        class="absolute-center text-center q-pa-lg JetBrainsMono-font text-primary"
+                        class="absolute-center text-center q-pa-sm JetBrainsMono-font text-primary"
                         :style="gameStates[state].style"
                     >
                         {{ gameStates[state].message }}
@@ -197,7 +196,7 @@ watch(game, (newVal) => {
                 </div>
             </q-page>
         </q-page-container>
-        <q-footer :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-4'">
+        <q-footer class="bg-grey-10">
             <UserInput />
         </q-footer>
     </q-layout>

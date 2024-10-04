@@ -17,7 +17,7 @@ import "./styles.css";
 app.use(Quasar, {
     plugins: { Dark, Notify }, // import Quasar plugins and add here
     config: {
-        dark: "auto",
+        dark: true,
         notify: {},
         brand: { primary: "#83F35D", secondary: "#FF6F00" },
     },

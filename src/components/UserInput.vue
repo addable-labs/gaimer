@@ -31,14 +31,15 @@ const remainingCharactersText = computed(() => {
 <template>
     <q-toolbar>
         <q-input
-            dense
-            filled
             autofocus
             autogrow
-            style="width: 100%"
-            :dark="$q.dark.isActive"
-            type="textarea"
+            class="absolute-center"
+            dark
+            dense
+            filled
             id="user-input"
+            style="width: calc(90vw)"
+            type="textarea"
             :label="
                 userInput.length == 0
                     ? 'Describe your game...'

@@ -14,7 +14,6 @@ const IndexedDBClient = () => {
                 if (!db.objectStoreNames.contains(STORE_NAME)) {
                     db.createObjectStore(STORE_NAME, {
                         keyPath: "id",
-                        autoIncrement: true,
                     });
                 }
             };
@@ -30,11 +29,27 @@ const IndexedDBClient = () => {
         });
     }
 
-    function putItem(item, key) {
+    function addItem(item) {
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], "readwrite");
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.put(item, key);
+            const request = store.add(item);
+
+            request.onsuccess = () => {
+                resolve();
+            };
+
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
+
+    function putItem(item) {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.put(item);
 
             request.onsuccess = () => {
                 resolve();
@@ -96,6 +111,7 @@ const IndexedDBClient = () => {
 
     return {
         initDB,
+        addItem,
         putItem,
         getItem,
         listItems,

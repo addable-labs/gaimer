@@ -31,19 +31,15 @@ export const getSystemMessage = (gameContainerSize) => {
             "title": "Game Title",
             "description": "Game Description",
             "rules": "Game Rules Description",
-            "elements": {
-                "player": "Player Description",
-                "enemies": "Enemies Description",
-                "obstacles": "Obstacles Description",
-                "goals": "Goals Description",
-                "rewards": "Rewards Description",
-                "controls": "Controls Description"
-            },
-            "mechanics": {
-                "levels": "Levels Description",
-                "power-ups": "Power-ups Description",
-                "other": "Other Game Mechanics"
-            },
+            "goals": "Goals Description",
+            "controls": "Controls Description",
+            "enemies": "Enemies Description",
+            "levels": "Levels Description",
+            "obstacles": "Obstacles Description",
+            "player": "Player Description",
+            "power-ups": "Power-ups Description",
+            "rewards": "Rewards Description",
+            "other": "Other Game Mechanics"
             "code": "Plain HTML and JavaScript Code"
         }
 
