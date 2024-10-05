@@ -4,12 +4,12 @@ import { defineStore } from "pinia";
 export const useAppStore = defineStore("app-store", () => {
     // Shared states
     const gameDescription = ref("");
-    const aiResponse = ref("");
-    const generating = ref(false);
+    const loadedGame = ref(null);
+    const gameList = ref([]);
 
     return {
-        aiResponse,
         gameDescription,
-        generating,
+        loadedGame,
+        gameList,
     };
 });

@@ -1,22 +1,19 @@
 <script setup>
-import { nextTick, onMounted, ref, watch, watchEffect } from "vue";
-import { useQuasar } from "quasar";
+import { nextTick, onMounted, ref, watch } from "vue";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
 import { storeToRefs } from "pinia";
-import logger from "./helpers/logger.js";
 import OpenAIClient from "./helpers/openai.js";
 import IndexedDBClient from "./helpers/indexeddb.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
+import GameList from "./components/GameList.vue";
 import GameContainer from "./components/GameContainer.vue";
 import { getSystemMessage } from "./helpers/prompts.js";
-import GameList from "./components/GameList.vue";
 
-const $q = useQuasar();
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
-const { gameDescription, generating } = storeToRefs(appStore);
+const { gameDescription, loadedGame, gameList } = storeToRefs(appStore);
 const { apiKey } = storeToRefs(persistedStore);
 
 const openAI = OpenAIClient(apiKey.value);
@@ -25,24 +22,13 @@ const idbClient = IndexedDBClient();
 const drawer = ref(false);
 
 let game = ref({ id: "", prompts: [] });
-const gameContainerSize = ref({
-    width: document.documentElement.clientWidth - 50,
-    height: document.documentElement.clientHeight - 100,
-});
 
-const onResize = () => {
-    gameContainerSize.value = {
-        width: document.documentElement.clientWidth - 50,
-        height: document.documentElement.clientHeight - 100,
-    };
-    console.log(gameContainerSize.value);
-};
-
+// Generate a new game using AI, based on the user input
 const generateGame = async (prompt) => {
     state.value = "generating";
     let systemMessage = {
         role: "system",
-        content: getSystemMessage(gameContainerSize),
+        content: getSystemMessage(),
     };
 
     let userMessage = { role: "user", content: prompt };
@@ -50,7 +36,6 @@ const generateGame = async (prompt) => {
     openAI
         .createChatCompletion([systemMessage, userMessage])
         .then((response) => {
-            // console.log(response.choices[0].message.content);
             let jsonResponse = JSON.parse(response.choices[0].message.content);
 
             let timestamp = Date.now().toString();
@@ -65,6 +50,14 @@ const generateGame = async (prompt) => {
                 .addItem(newGame)
                 .then(() => {
                     game.value = jsonResponse;
+                    loadedGame.value = timestamp;
+                    gameList.value.push({
+                        id: timestamp,
+                        title: jsonResponse.title,
+                        description: jsonResponse.description,
+                        controls: jsonResponse.controls,
+                        rules: jsonResponse.rules,
+                    });
                     state.value = "done";
                     console.log("Game generated");
                 })
@@ -82,8 +75,10 @@ const generateGame = async (prompt) => {
     await nextTick();
 };
 
+// Load selected game from IndexedDB
 const loadGame = async (id) => {
     state.value = "loading";
+    loadedGame.value = id;
     idbClient
         .getItem(id)
         .then((item) => {
@@ -113,7 +108,7 @@ const gameStates = ref({
     loading: { message: "Loading game...", style: "", duration: 1000 },
     done: {
         message: "",
-        style: "width: calc(95vw - 50px);height: calc(95vh - 150px);",
+        style: "width: calc(100vw - 50px);height: calc(100vh - 275px);",
         duration: 0,
     },
     error: { message: "Failed to load game", style: "", duration: 0 },
@@ -171,7 +166,6 @@ watch(game, (newVal) => {
 
         <q-page-container>
             <q-page id="page">
-                <q-resize-observer @resize="onResize" />
                 <div v-if="apiKey == ''">
                     <Settings />
                 </div>
@@ -196,7 +190,7 @@ watch(game, (newVal) => {
                 </div>
             </q-page>
         </q-page-container>
-        <q-footer class="bg-grey-10">
+        <q-footer class="bg-grey-10 fixed">
             <UserInput />
         </q-footer>
     </q-layout>

@@ -15,8 +15,12 @@ Create a simple tetris game. Before starting the game, diaplay a welcome message
 
 Create a simple tetris game of falling dark orange blocks that need to be placed in a row to clear a line. Before starting the game, diaplay a welcome message with a brief game description for 5 seconds, also showing a description of what keys to press to play the game.  At the bottom of the screen, display what controls to use to play the game, and also display the score the player has, how many lives the player has left, etc. The game ends when Esc-key is pressed. The game is restarted when R-key is pressed.
 
-Create a simple tetris game of falling dark orange blocks that need to be placed in a row to clear a line. Before starting the game, display a welcome message with a brief game description for 5 seconds, also showing a description of what keys to press to play the game. Use transparent background. At the bottom of the screen, display what controls to use to play the game, and also display the score the player has, how many lives the player has left, etc. The game ends when Q-key is pressed. The game is paused when the P-key is pressed. The game is restarted when R-key is pressed.
+Create a simple tetris game of falling dark orange blocks that need to be placed in a row to clear a line.
+Use transparent background. At the bottom of the screen, display the score the player has, how many lives the player has left, etc. The game ends when Q-key is pressed. The game is paused when the P-key is pressed. The game is restarted when R-key is pressed.
 
+Create a minesweeper game, with that Windows 3.1 look and feel.
+The game is going to be played on a mobile phone, so make sure that the canvas fits in the current viewport.
+The game is paused when the P-key is pressed. The game is restarted when R-key is pressed. The game ends when Q-key is pressed.
 
 # Configuring iOS support
 
@@ -38,7 +42,7 @@ Create a simple tetris game of falling dark orange blocks that need to be placed
 
 
     yarn tauri ios init
-    yarn tauri ios build
+    yarn tauri ios dev
 
     # Got error:
     # xcodebuild: error: Found no destinations for the scheme 'gaimer_iOS' and action build

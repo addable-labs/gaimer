@@ -1,7 +1,7 @@
 <template>
     <q-list>
         <q-item-label header>Game List</q-item-label>
-        <q-item v-for="game in games" :key="game.id" clickable>
+        <q-item v-for="game in gameList" :key="game.id" clickable>
             <q-item-section>
                 <q-item-label @click="$emit('loadGame', game.id)"
                     >{{ game.title }}
@@ -42,7 +42,7 @@
                         flat
                         icon="mdi-delete"
                         size="sm"
-                        @click="deleteGame(game.id)"
+                        @click.stop="deleteGame(game.id)"
                     >
                         <q-tooltip
                             :delay="500"
@@ -61,17 +61,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { onMounted } from "vue";
 import IndexedDBClient from "../helpers/indexeddb.js";
+import { useAppStore } from "../stores/app-store.js";
+import { storeToRefs } from "pinia";
+const appStore = useAppStore();
+const { gameList } = storeToRefs(appStore);
 
 const idbClient = IndexedDBClient();
-const games = ref([]);
 
 const deleteGame = async (id) => {
     idbClient
         .deleteItem(id)
         .then(() => {
-            games.value = games.value.filter((game) => game.id !== id);
+            gameList.value = gameList.value.filter((game) => game.id !== id);
             console.log(`Delete game: ${id}`);
         })
         .catch((error) => {
@@ -82,10 +85,19 @@ const deleteGame = async (id) => {
 onMounted(async () => {
     console.log("GameList mounted");
     await idbClient.initDB();
-    idbClient.listItems().then((items) => {
-        items.forEach((item) => {
-            games.value.push({ id: item.id, ...JSON.parse(item.content) });
+    if (gameList.value.length == 0) {
+        idbClient.listItems().then((items) => {
+            items.forEach((item) => {
+                let content = JSON.parse(item.content);
+                gameList.value.push({
+                    id: item.id,
+                    title: content.title,
+                    description: content.description,
+                    controls: content.controls,
+                    rules: content.rules,
+                });
+            });
         });
-    });
+    }
 });
 </script>

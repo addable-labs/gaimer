@@ -31,7 +31,6 @@ const remainingCharactersText = computed(() => {
 <template>
     <q-toolbar>
         <q-input
-            autofocus
             autogrow
             class="absolute-center"
             dark

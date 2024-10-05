@@ -17,6 +17,8 @@ const OpenAIClient = (apiKey) => {
         return client.chat.completions.create({
             messages: messages,
             model: model,
+            temperature: temperature,
+            max_tokens: maxTokens,
         });
     };
 
