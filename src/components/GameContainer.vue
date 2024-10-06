@@ -5,27 +5,37 @@ import { useQuasar } from "quasar";
 const { game } = defineProps(["game"]);
 const $q = useQuasar();
 
-async function runGame() {
-    // Get the game container, canvas and script elements
+async function loadGameScript() {
+    // Get the game container and script elements
     const gameContainer = document.getElementById("game-container");
-    const gameCanvas = document.getElementById("game-canvas");
     const scriptsContainer = document.getElementById("game-scripts");
 
+    // Remove any existing script nodes
+    while (scriptsContainer.firstChild) {
+        scriptsContainer.removeChild(scriptsContainer.firstChild);
+    }
+
+    await nextTick();
+
+    // Create a new script element
     const gameScripts = document.createElement("script");
 
-    // Inject the generated code
-    gameScripts.textContent = game.code;
+    // Wrap the generated JavaScript code in an IIFE to create a new scope for each game.
+    // Variables and functions are scoped within the function and won’t pollute the global scope.
+    // IIFE = Immediately Invoked Function Expression
+    gameScripts.textContent = `
+        (function() {
+            // Your game code here
+            // const canvas = document.getElementById('game-canvas');
+            ${game.code}
+        })();
+    `;
 
-    // Remove any existing script nodes
-    if (scriptsContainer.hasChildNodes) {
-        for (let childNode of scriptsContainer.childNodes) {
-            childNode.remove();
-            scriptsContainer.removeChild(childNode);
-        }
-    }
-    await nextTick();
     // Append the game script to the scripts container
     scriptsContainer.appendChild(gameScripts);
+
+    // Wait for the DOM to update after appending the script
+    await nextTick();
 
     // Run the game script
     const scripts = gameContainer.getElementsByTagName("script");
@@ -50,7 +60,8 @@ const displayNotification = (message) => {
 watchEffect(async (game) => {
     console.log("Game content updated");
     await nextTick();
-    runGame();
+    // runGame();
+    loadGameScript();
 });
 
 const screenSize = ref({

@@ -19,6 +19,8 @@ async function handleUserInput() {
 
     gameDescription.value = userInput.value;
     userInput.value = "";
+
+    Document.getElementById("user-input").blur();
 }
 
 const remainingCharactersText = computed(() => {
@@ -39,14 +41,14 @@ const remainingCharactersText = computed(() => {
             id="user-input"
             style="width: calc(90vw)"
             type="textarea"
+            v-model="userInput"
             :label="
                 userInput.length == 0
                     ? 'Describe your game...'
                     : remainingCharactersText
             "
-            v-model="userInput"
             :maxlength="descriptionMaxLength"
-            @keydown.command.enter.prevent="handleUserInput()"
+            @keydown.meta.enter.prevent="handleUserInput()"
         >
             <template v-slot:append>
                 <q-btn
