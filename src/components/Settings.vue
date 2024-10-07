@@ -17,25 +17,19 @@ async function handleInput() {
     }
 
     apiKey.value = userInput.value;
+    closeDialog();
 }
 
-const props = defineProps({
-    modelValue: {
-        type: Boolean,
-        default: false,
-    },
-});
-
-const emit = defineEmits(["update:modelValue"]);
+const model = defineModel({ default: false });
 
 function closeDialog() {
-    emit("update:modelValue", false);
+    model.value = false;
 }
 </script>
 
 <template>
-    <q-dialog v-model="modelValue">
-        <q-card>
+    <q-dialog v-model="model">
+        <q-card style="width: 350px; max-width: 75vw">
             <q-card-section>
                 <div class="text-h6">Settings</div>
             </q-card-section>

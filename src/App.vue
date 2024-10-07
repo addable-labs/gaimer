@@ -166,39 +166,50 @@ watch(game, (newVal) => {
             @click.stop="drawer = false"
         >
             <GameList @loadGame="loadGame" />
-            <q-btn
-                flat
-                dense
-                round
-                icon="mdi-cog"
-                aria-label="Settings"
-                @click="showSettings = true"
-                class="q-mt-auto q-mb-md"
-            />
+
+            <q-item v-ripple class="fixed-bottom q-pa-md">
+                <q-item-section side>
+                    <q-avatar rounded size="48px">
+                        <img src="https://cdn.quasar.dev/img/avatar3.jpg" />
+                    </q-avatar>
+                </q-item-section>
+                <q-item-section>
+                    <q-item-label>Jane Doe</q-item-label>
+                    <q-item-label caption>2 new games</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                    <q-btn
+                        flat
+                        dense
+                        round
+                        icon="mdi-cog"
+                        aria-label="Settings"
+                        @click="showSettings = true"
+                    />
+                </q-item-section>
+            </q-item>
         </q-drawer>
 
         <q-page-container>
             <q-page id="page">
                 <Settings v-model="showSettings" />
 
-                <div v-else>
-                    <q-card
-                        bordered
-                        flat
-                        class="absolute-center text-center q-pa-sm JetBrainsMono-font text-primary"
-                        :style="gameStates[state].style"
-                    >
-                        {{ gameStates[state].message }}
+                <q-card
+                    bordered
+                    flat
+                    class="absolute-center text-center q-pa-sm JetBrainsMono-font text-primary"
+                    :style="gameStates[state].style"
+                >
+                    {{ gameStates[state].message }}
 
-                        <q-spinner-gears
-                            v-if="state == 'generating' || state == 'loading'"
-                            class="q-pa-lg"
-                            color="primary"
-                            size="8em"
-                        />
-                        <GameContainer v-if="state == 'done'" :game="game" />
-                    </q-card>
-                </div>
+                    <q-spinner-gears
+                        v-if="state == 'generating' || state == 'loading'"
+                        class="q-pa-lg"
+                        color="primary"
+                        size="8em"
+                    />
+                    <GameContainer v-if="state == 'done'" :game="game" />
+                </q-card>
             </q-page>
         </q-page-container>
         <q-footer class="bg-grey-10 fixed">
