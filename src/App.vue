@@ -20,6 +20,7 @@ const openAI = OpenAIClient(apiKey.value);
 const idbClient = IndexedDBClient();
 
 const drawer = ref(false);
+const showSettings = ref(false);
 
 let game = ref({ id: "", prompts: [] });
 
@@ -117,6 +118,9 @@ const gameStates = ref({
 // Make sure to initiate the IndexedDB object store
 onMounted(() => {
     idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
+    if (apiKey.value === "") {
+        showSettings.value = true;
+    }
 });
 
 // Watch for new game descriptions from the user input
@@ -162,13 +166,20 @@ watch(game, (newVal) => {
             @click.stop="drawer = false"
         >
             <GameList @loadGame="loadGame" />
+            <q-btn
+                flat
+                dense
+                round
+                icon="mdi-cog"
+                aria-label="Settings"
+                @click="showSettings = true"
+                class="q-mt-auto q-mb-md"
+            />
         </q-drawer>
 
         <q-page-container>
             <q-page id="page">
-                <div v-if="apiKey == ''">
-                    <Settings />
-                </div>
+                <Settings v-model="showSettings" />
 
                 <div v-else>
                     <q-card
