@@ -171,14 +171,21 @@ watch(game, (newVal) => {
 
             <q-item v-ripple class="fixed-bottom q-pa-md">
                 <q-item-section side>
-                    <q-avatar rounded size="48px">
-                        <img v-if="userAvatar" :src="userAvatar" />
-                        <img v-else src="https://cdn.quasar.dev/img/avatar3.jpg" />
+                    <q-avatar v-if="userAvatar" rounded size="48px">
+                        <img :src="userAvatar" />
                     </q-avatar>
+                    <q-btn
+                        v-else
+                        flat
+                        color="primary"
+                        dense
+                        icon="mdi-login"
+                        label="Login"
+                        @click.stop="showLogin = true"
+                    />
                 </q-item-section>
                 <q-item-section>
-                    <q-item-label>{{ userName || "Jane Doe" }}</q-item-label>
-                    <q-item-label caption>2 new games</q-item-label>
+                    <q-item-label>{{ userName }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
                     <q-btn
@@ -188,14 +195,6 @@ watch(game, (newVal) => {
                         icon="mdi-cog"
                         aria-label="Settings"
                         @click="showSettings = true"
-                    />
-                    <q-btn
-                        flat
-                        dense
-                        round
-                        icon="mdi-login"
-                        aria-label="Login"
-                        @click="showLogin = true"
                     />
                 </q-item-section>
             </q-item>

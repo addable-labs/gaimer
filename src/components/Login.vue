@@ -2,53 +2,83 @@
 import { ref, onMounted } from "vue";
 import { usePersistedStore } from "../stores/persisted-store.js";
 import { storeToRefs } from "pinia";
-import * as firebase from "firebase/app";
-import "firebase/auth";
-import * as firebaseui from "firebaseui";
-import "firebaseui/dist/firebaseui.css";
+import { initializeApp } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+
+const model = defineModel({ default: false });
 
 const persistedStore = usePersistedStore();
-const { apiKey } = storeToRefs(persistedStore);
+const { user } = storeToRefs(persistedStore);
+
+const FIREBASE_WEB_API_KEY = "";
+const FIREBASE_AUTH_DOMAIN = "";
+const FIREBASE_PROJECT_ID = "";
+const FIREBASE_STORAGE_BUCKET = "";
+const FIREBASE_MESSAGING_SENDER_ID = "";
+const FIREBASE_APP_ID = "";
 
 const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_FIREBASE_AUTH_DOMAIN",
-  projectId: "YOUR_FIREBASE_PROJECT_ID",
-  storageBucket: "YOUR_FIREBASE_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_FIREBASE_MESSAGING_SENDER_ID",
-  appId: "YOUR_FIREBASE_APP_ID",
+    apiKey: "FIREBASE_WEB_API_KEY",
+    authDomain: "FIREBASE_AUTH_DOMAIN",
+    projectId: "FIREBASE_PROJECT_ID",
+    storageBucket: "FIREBASE_STORAGE_BUCKET",
+    messagingSenderId: "FIREBASE_MESSAGING_SENDER_ID",
+    appId: "FIREBASE_APP_ID",
 };
 
-firebase.initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
-const uiConfig = {
-  signInSuccessUrl: "/",
-  signInOptions: [
-    firebase.auth.GoogleAuthProvider.PROVIDER_ID,
-    firebase.auth.EmailAuthProvider.PROVIDER_ID,
-  ],
-  tosUrl: "/terms-of-service",
-  privacyPolicyUrl: "/privacy-policy",
+const email = ref(null);
+const password = ref(null);
+
+const handleLogin = () => {
+    if (FIREBASE_WEB_API_KEY == "") return;
+    signInWithEmailAndPassword(auth, email.value, password.value)
+        .then((userCredential) => {
+            // Signed in
+            user.value = userCredential.user;
+            // ...
+        })
+        .catch((error) => {
+            const errorCode = error.code;
+            const errorMessage = error.message;
+        });
 };
-
-const ui = new firebaseui.auth.AuthUI(firebase.auth());
-
-const user = ref(null);
 
 onMounted(() => {
-  firebase.auth().onAuthStateChanged((user) => {
-    if (user) {
-      apiKey.value = user.uid;
-      localStorage.setItem("fb_apiKey", user.uid);
-      localStorage.setItem("fb_userName", user.displayName);
-      localStorage.setItem("fb_userAvatar", user.photoURL);
-    } else {
-      ui.start("#firebaseui-auth-container", uiConfig);
-    }
-  });
+    handleLogin();
 });
 </script>
 
 <template>
-  <div id="firebaseui-auth-container"></div>
+    <q-dialog v-model="model">
+        <q-card style="width: 350px; max-width: 75vw">
+            <q-card-section>
+                <div class="text-h6">Login</div>
+                <div class="text-caption">
+                    You need to authenticate to use this service
+                </div>
+            </q-card-section>
+            <q-card-section>
+                <q-input v-model="email" label="Email" autofocus dense filled />
+                <q-input
+                    v-model="password"
+                    label="Password"
+                    dense
+                    filled
+                    class="q-pt-md"
+                />
+            </q-card-section>
+            <q-card-actions align="right">
+                <q-btn label="Cancel" flat @click="model = false" />
+                <q-btn
+                    label="Login"
+                    flat
+                    color="primary"
+                    @click="handleLogin()"
+                />
+            </q-card-actions>
+        </q-card>
+    </q-dialog>
 </template>

@@ -2,7 +2,11 @@ import { ref, watch } from "vue";
 import { defineStore } from "pinia";
 
 export const usePersistedStore = defineStore("persisted-store", () => {
-    const apiKey = ref(loadStateFromLocalStorage("fb_apiKey") || "");
+    // OpenAI API key
+    const apiKey = ref(loadStateFromLocalStorage("apiKey") || "");
+
+    // Firebase user
+    const user = ref(loadStateFromLocalStorage("fb_user") || "");
     const userName = ref(loadStateFromLocalStorage("fb_userName") || "");
     const userAvatar = ref(loadStateFromLocalStorage("fb_userAvatar") || "");
 
@@ -16,9 +20,12 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     }
 
     watch(apiKey, (newValue) => {
-        saveStateToLocalStorage("fb_apiKey", newValue);
+        saveStateToLocalStorage("apiKey", newValue);
     });
 
+    watch(user, (newValue) => {
+        saveStateToLocalStorage("fb_user", newValue);
+    });
     watch(userName, (newValue) => {
         saveStateToLocalStorage("fb_userName", newValue);
     });
@@ -29,6 +36,7 @@ export const usePersistedStore = defineStore("persisted-store", () => {
 
     return {
         apiKey,
+        user,
         userName,
         userAvatar,
     };
