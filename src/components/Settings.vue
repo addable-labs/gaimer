@@ -18,27 +18,54 @@ async function handleInput() {
 
     apiKey.value = userInput.value;
 }
+
+const props = defineProps({
+    modelValue: {
+        type: Boolean,
+        default: false,
+    },
+});
+
+const emit = defineEmits(["update:modelValue"]);
+
+function closeDialog() {
+    emit("update:modelValue", false);
+}
 </script>
 
 <template>
-    <div class="q-gutter-sm" style="width: 400px">
-        <q-input
-            dense
-            filled
-            autofocus
-            id="user-input"
-            v-model="userInput"
-            label="Enter your API key..."
-            @keydown.enter="handleInput()"
-        />
-        <q-btn
-            dense
-            flat
-            icon="mdi-content-save"
-            color="primary"
-            stack-label
-            label="Save"
-            @click="handleInput()"
-        />
-    </div>
+    <q-dialog v-model="modelValue">
+        <q-card>
+            <q-card-section>
+                <div class="text-h6">Settings</div>
+            </q-card-section>
+
+            <q-card-section class="q-pt-none">
+                <q-input
+                    dense
+                    filled
+                    autofocus
+                    id="user-input"
+                    v-model="userInput"
+                    label="Enter your API key..."
+                    @keydown.enter="handleInput()"
+                />
+            </q-card-section>
+
+            <q-card-actions align="right">
+                <q-btn
+                    flat
+                    label="Close"
+                    color="primary"
+                    @click="closeDialog"
+                />
+                <q-btn
+                    flat
+                    label="Save"
+                    color="primary"
+                    @click="handleInput()"
+                />
+            </q-card-actions>
+        </q-card>
+    </q-dialog>
 </template>
