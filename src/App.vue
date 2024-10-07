@@ -10,17 +10,19 @@ import Settings from "./components/Settings.vue";
 import GameList from "./components/GameList.vue";
 import GameContainer from "./components/GameContainer.vue";
 import { getSystemMessage } from "./helpers/prompts.js";
+import Login from "./components/Login.vue";
 
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const { gameDescription, loadedGame, gameList } = storeToRefs(appStore);
-const { apiKey } = storeToRefs(persistedStore);
+const { apiKey, userName, userAvatar } = storeToRefs(persistedStore);
 
 const openAI = OpenAIClient(apiKey.value);
 const idbClient = IndexedDBClient();
 
 const drawer = ref(false);
 const showSettings = ref(false);
+const showLogin = ref(false);
 
 let game = ref({ id: "", prompts: [] });
 
@@ -170,11 +172,12 @@ watch(game, (newVal) => {
             <q-item v-ripple class="fixed-bottom q-pa-md">
                 <q-item-section side>
                     <q-avatar rounded size="48px">
-                        <img src="https://cdn.quasar.dev/img/avatar3.jpg" />
+                        <img v-if="userAvatar" :src="userAvatar" />
+                        <img v-else src="https://cdn.quasar.dev/img/avatar3.jpg" />
                     </q-avatar>
                 </q-item-section>
                 <q-item-section>
-                    <q-item-label>Jane Doe</q-item-label>
+                    <q-item-label>{{ userName || "Jane Doe" }}</q-item-label>
                     <q-item-label caption>2 new games</q-item-label>
                 </q-item-section>
                 <q-item-section side>
@@ -186,6 +189,14 @@ watch(game, (newVal) => {
                         aria-label="Settings"
                         @click="showSettings = true"
                     />
+                    <q-btn
+                        flat
+                        dense
+                        round
+                        icon="mdi-login"
+                        aria-label="Login"
+                        @click="showLogin = true"
+                    />
                 </q-item-section>
             </q-item>
         </q-drawer>
@@ -193,6 +204,7 @@ watch(game, (newVal) => {
         <q-page-container>
             <q-page id="page">
                 <Settings v-model="showSettings" />
+                <Login v-model="showLogin" />
 
                 <q-card
                     bordered
