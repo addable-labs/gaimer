@@ -17,10 +17,10 @@
   },
   "dependencies": {
     "@quasar/extras": "^1.16.12",
-    "@tauri-apps/api": ">=2.0.0-rc.0",
-    "@tauri-apps/plugin-fs": "^2.0.0-rc.2",
-    "@tauri-apps/plugin-http": "^2.0.0-rc.2",
-    "@tauri-apps/plugin-shell": ">=2.0.0-rc.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-fs": "^2.0.0",
+    "@tauri-apps/plugin-http": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
     "firebase": "^10.14.0",
     "localforage": "^1.10.0",
     "openai": "^4.63.0",
@@ -31,7 +31,7 @@
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@quasar/vite-plugin": "^1.7.0",
-    "@tauri-apps/cli": ">=2.0.0-rc.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^5.0.5",
     "@vitest/coverage-v8": "^4.0.18",
     "@vue/test-utils": "^2.4.6",
