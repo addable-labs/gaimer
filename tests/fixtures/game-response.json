@@ -1,0 +1,15 @@
+{
+  "title": "Space Defender",
+  "description": "A space shooter where you defend Earth from alien invaders.",
+  "rules": "Shoot all aliens before they reach the bottom. You have 3 lives.",
+  "goals": "Survive all waves and achieve the highest score.",
+  "controls": "Arrow keys to move, Space to shoot",
+  "enemies": "Green aliens that move in formation and occasionally dive-bomb.",
+  "levels": "3 waves of increasing difficulty",
+  "obstacles": "Asteroids that block your shots",
+  "player": "A blue spaceship at the bottom of the screen",
+  "power-ups": "Shield (blue orb), Rapid Fire (red orb)",
+  "rewards": "100 points per alien, 500 points per wave cleared",
+  "other": "Combo multiplier for consecutive hits",
+  "code": "const canvas = document.getElementById('game-canvas');\nconst ctx = canvas.getContext('2d');\nlet x = canvas.width / 2;\nlet y = canvas.height - 50;\nfunction draw() {\n  ctx.clearRect(0, 0, canvas.width, canvas.height);\n  ctx.fillStyle = 'blue';\n  ctx.fillRect(x - 15, y - 10, 30, 20);\n  requestAnimationFrame(draw);\n}\ndraw();"
+}

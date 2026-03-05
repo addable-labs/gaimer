@@ -20,7 +20,7 @@ async function handleUserInput() {
     gameDescription.value = userInput.value;
     userInput.value = "";
 
-    Document.getElementById("user-input").blur();
+    document.getElementById("user-input")?.blur();
 }
 
 const remainingCharactersText = computed(() => {

@@ -7,7 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest watch"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.12",
@@ -23,10 +29,16 @@
     "vue": "^3.3.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@quasar/vite-plugin": "^1.7.0",
     "@tauri-apps/cli": ">=2.0.0-rc.0",
     "@vitejs/plugin-vue": "^5.0.5",
+    "@vitest/coverage-v8": "^4.0.18",
+    "@vue/test-utils": "^2.4.6",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.8.3",
     "sass": "^1.33.0",
-    "vite": "^5.3.1"
+    "vite": "^5.3.1",
+    "vitest": "^4.0.18"
   }
 }
