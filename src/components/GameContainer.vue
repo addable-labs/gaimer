@@ -7,9 +7,10 @@ const { game } = defineProps(["game"]);
 const $q = useQuasar();
 
 let sandbox = null;
+const containerRef = ref(null);
 
 function loadGameScript() {
-    const container = document.getElementById("game-container");
+    const container = containerRef.value;
     if (!container || !game.code) return;
 
     // Destroy previous sandbox if it exists
@@ -18,11 +19,13 @@ function loadGameScript() {
         sandbox = null;
     }
 
+    // Calculate size from the container's actual dimensions
+    const rect = container.getBoundingClientRect();
+    const width = Math.floor(rect.width);
+    const height = Math.floor(rect.height);
+
     // Create a new sandboxed iframe for the game
-    sandbox = createSandbox(container, {
-        width: screenSize.value.width,
-        height: screenSize.value.height,
-    });
+    sandbox = createSandbox(container, { width, height });
 
     // Listen for messages from the sandbox
     sandbox.onMessage((msg) => {
@@ -52,6 +55,19 @@ function handleVisibilityChange() {
     }
 }
 
+// Handle resize for responsive canvas
+function handleResize() {
+    if (!sandbox || !containerRef.value) return;
+    // Reload game with new dimensions
+    loadGameScript();
+}
+
+let resizeTimeout = null;
+function debouncedResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(handleResize, 300);
+}
+
 // Game info to display below the game canvas
 const gameInfo = ref([
     { text: game.controls, icon: "mdi-gamepad-outline" },
@@ -71,29 +87,15 @@ watchEffect(async () => {
     loadGameScript();
 });
 
-const screenSize = ref({
-    width: document.documentElement.clientWidth - 100,
-    height: document.documentElement.clientHeight - 200,
-});
-
-const calculateCanvasSize = () => {
-    let parentElement = document.getElementById("game-container");
-    if (!parentElement) return screenSize.value;
-    let rect = parentElement.getBoundingClientRect();
-
-    return {
-        width: Math.floor(parseFloat(rect.width)),
-        height: Math.floor(parseFloat(rect.height) - 50),
-    };
-};
-
 onMounted(() => {
-    screenSize.value = calculateCanvasSize();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("resize", debouncedResize);
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("resize", debouncedResize);
+    clearTimeout(resizeTimeout);
     if (sandbox) {
         sandbox.destroy();
         sandbox = null;
@@ -102,30 +104,43 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div id="game-container" style="width: 100%; height: 100%">
+    <div ref="containerRef" class="game-canvas-wrapper">
     </div>
-    <div id="game-info">
-        <q-card dense flat class="JetBrainsMono-font text-primary" dark>
-            <div class="row">
-                <div class="col">
-                    <q-btn
-                        color="primary-darkened"
-                        flat
-                        v-for="item in gameInfo"
-                        :icon="item.icon"
-                        @click="displayNotification(item.text)"
-                    >
-                        <q-tooltip
-                            :delay="500"
-                            max-width="300px"
-                            transition-show="scale"
-                            transition-hide="scale"
-                        >
-                            {{ item.text }}
-                        </q-tooltip>
-                    </q-btn>
-                </div>
-            </div>
-        </q-card>
+    <div class="game-info-bar">
+        <q-btn
+            v-for="item in gameInfo"
+            :key="item.icon"
+            color="primary-darkened"
+            flat
+            dense
+            :icon="item.icon"
+            @click="displayNotification(item.text)"
+        >
+            <q-tooltip
+                :delay="500"
+                max-width="300px"
+                transition-show="scale"
+                transition-hide="scale"
+            >
+                {{ item.text }}
+            </q-tooltip>
+        </q-btn>
     </div>
 </template>
+
+<style scoped>
+.game-canvas-wrapper {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: #1a1a1a;
+}
+
+.game-info-bar {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    background: #1a1a1a;
+}
+</style>

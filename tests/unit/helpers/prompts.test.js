@@ -30,8 +30,13 @@ describe('getSystemMessage', () => {
     expect(message.toLowerCase()).toContain('valid json')
   })
 
-  it('references the game-container template', () => {
+  it('describes the sandboxed iframe execution environment', () => {
     const message = getSystemMessage()
-    expect(message).toContain('game-container')
+    expect(message).toContain('sandboxed iframe')
+  })
+
+  it('includes touch/mobile support instructions', () => {
+    const message = getSystemMessage()
+    expect(message.toLowerCase()).toContain('touch')
   })
 })

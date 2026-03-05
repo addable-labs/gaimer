@@ -42,15 +42,23 @@ export function createSandbox(container, options = {}) {
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:;">
 <style>
-  body { margin: 0; overflow: hidden; background: #1a1a1a; }
-  canvas { display: block; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; touch-action: none; }
+  canvas { display: block; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 </style>
 </head>
 <body>
 <canvas id="game-canvas" width="${canvasWidth}" height="${canvasHeight}"></canvas>
 <script>
+// Prevent default touch behaviors (scrolling, zooming) on the canvas
+var __canvas = document.getElementById('game-canvas');
+__canvas.addEventListener('touchstart', function(e) { e.preventDefault(); }, { passive: false });
+__canvas.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+__canvas.addEventListener('touchend', function(e) { e.preventDefault(); }, { passive: false });
+
 // Message handler for parent communication
 window.addEventListener('message', function(event) {
   if (event.data && event.data.type) {

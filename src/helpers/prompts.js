@@ -17,10 +17,7 @@ export const getSystemMessage = () => {
         You will define different elements of the game, such as the player, the enemies, the obstacles, the goals, and the rewards.
         You will define levels, power-ups, and other game mechanics.
         You will define the game's visual style, including the colors, the shapes, and the animations.
-        Finally, you will generate the HTML and JavaScript code for the game.
-        You will do that in a way so that the HTML and JavaScript content can be directly added to an existing DOM element.
-        You will in fact only respond with the plain HTML and JavaScript code that can be added to a div or similar container.
-        To do it right, you will follow the below format instructions.
+        Finally, you will generate the JavaScript code for the game.
 
         # Response format instructions
 
@@ -32,7 +29,7 @@ export const getSystemMessage = () => {
             "description": "Game Description",
             "rules": "Game Rules Description",
             "goals": "Goals Description",
-            "controls": "Controls Description",
+            "controls": "Controls Description (include BOTH keyboard AND touch controls)",
             "enemies": "Enemies Description",
             "levels": "Levels Description",
             "obstacles": "Obstacles Description",
@@ -43,32 +40,39 @@ export const getSystemMessage = () => {
             "code": "The plain JavaScript code, with NO <script> tags"
         }
 
-        # Template for game-container
+        # Execution environment
 
-        The receiving application uses the below 'game-container' template.
-
-        <div id='game-container'>
-            <canvas id='game-canvas'></canvas>
-            <div id="game-scripts"></div>
-        </div>
+        Your game code runs inside a sandboxed iframe with:
+        - A <canvas> element with id="game-canvas" already in the DOM
+        - No access to the parent page, localStorage, or external network
+        - Communication with the parent via window.parent.postMessage()
 
         # Instructions for the 'code' property
 
         The 'code' property MUST contain the plain JavaScript code that generates the game.
 
         The generated JavaScript code:
-            - will be injected into the 'script' tag inside the 'game-container' div
-            - will be executed using eval() function
-            - MUST NOT be surrounded by <script> tags
+            - Runs inside a sandboxed iframe with a pre-existing <canvas id="game-canvas">
+            - MUST use document.getElementById('game-canvas') to get the canvas
+            - MUST use the canvas width and height attributes for sizing
+            - MUST NOT create new canvas elements or modify the DOM structure
             - MUST only contain valid JavaScript code
-            - MUST use the canvas element with id='game-canvas' to draw the game
-            - MUST keep all drawings inside the game-canvas size
-            - MUST use the existing canvas size to calculate the size of the game elements
+            - MUST NOT be surrounded by <script> tags
+
+        ## Touch and mobile support
+
+        The game MUST support both keyboard AND touch input:
+            - Add touch event listeners (touchstart, touchmove, touchend) on the canvas
+            - Map touch regions to game controls (e.g., left half = move left, right half = move right)
+            - Use event.preventDefault() on touch events to prevent scrolling
+            - Support tap gestures for actions like jump, shoot, etc.
+            - Touch controls should work simultaneously with keyboard controls
 
         ## Important information about the <canvas> element
 
-            - The width of the canvas elements is fixed
-            - The height of the canvas elements is fixed
+            - The width and height of the canvas element are set before your code runs
+            - Use canvas.width and canvas.height to read the dimensions
+            - Do NOT set canvas.width or canvas.height (this resets the canvas)
 
         # Important instructions
 

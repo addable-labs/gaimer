@@ -2,8 +2,10 @@
 import { nextTick, onMounted, ref, watch } from "vue";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
+import { useProviderStore } from "./stores/provider-store.js";
 import { storeToRefs } from "pinia";
-import OpenAIClient from "./helpers/openai.js";
+import { createProviderRegistry } from "./providers/registry.js";
+import { createOpenAIProvider } from "./providers/openai-provider.js";
 import IndexedDBClient from "./helpers/indexeddb.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
@@ -14,10 +16,36 @@ import Login from "./components/Login.vue";
 
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
+const providerStore = useProviderStore();
 const { gameDescription, loadedGame, gameList } = storeToRefs(appStore);
 const { apiKey, userName, userAvatar } = storeToRefs(persistedStore);
 
-const openAI = OpenAIClient(apiKey.value);
+// Set up provider registry
+const registry = createProviderRegistry();
+const openaiProvider = createOpenAIProvider();
+registry.register(openaiProvider);
+
+// Connect OpenAI provider if API key exists
+async function connectProvider() {
+    if (apiKey.value) {
+        const result = await openaiProvider.connect({ apiKey: apiKey.value });
+        if (result.success) {
+            registry.setActive("openai");
+            providerStore.setActiveProvider("openai");
+            providerStore.addConnection("openai", { connected: true, authMethod: "apikey" });
+        }
+    }
+}
+
+// Re-connect when API key changes
+watch(apiKey, async () => {
+    if (openaiProvider.isConnected()) {
+        await openaiProvider.disconnect();
+        providerStore.removeConnection("openai");
+    }
+    await connectProvider();
+});
+
 const idbClient = IndexedDBClient();
 
 const drawer = ref(false);
@@ -26,55 +54,62 @@ const showLogin = ref(false);
 
 let game = ref({ id: "", prompts: [] });
 
-// Generate a new game using AI, based on the user input
+// Generate a new game using the active provider
 const generateGame = async (prompt) => {
+    const provider = registry.getActive();
+    if (!provider) {
+        state.value = "error";
+        debugMessage.value = "No AI provider connected. Please set your API key in Settings.";
+        return;
+    }
+
     state.value = "generating";
-    let systemMessage = {
-        role: "system",
-        content: getSystemMessage(),
-    };
 
-    let userMessage = { role: "user", content: prompt };
-
-    openAI
-        .createChatCompletion([systemMessage, userMessage])
-        .then((response) => {
-            let jsonResponse = JSON.parse(response.choices[0].message.content);
-
-            let timestamp = Date.now().toString();
-            let newGame = {
-                id: timestamp,
-                prompt: JSON.stringify(prompt),
-                content: JSON.stringify(jsonResponse),
-            };
-
-            // Save the game to IndexedDB
-            idbClient
-                .addItem(newGame)
-                .then(() => {
-                    game.value = jsonResponse;
-                    loadedGame.value = timestamp;
-                    gameList.value.push({
-                        id: timestamp,
-                        title: jsonResponse.title,
-                        description: jsonResponse.description,
-                        controls: jsonResponse.controls,
-                        rules: jsonResponse.rules,
-                    });
-                    state.value = "done";
-                    console.log("Game generated");
-                })
-                .catch((error) => {
-                    debugMessage.value = error;
-                    console.error("Failed to save game:", error);
-                });
-        })
-        .catch((error) => {
-            console.error(error);
-            state.value = "error";
-            debugMessage.value = error;
+    try {
+        const generator = provider.generateGame(prompt, {
+            systemMessage: getSystemMessage(),
+            model: "gpt-4o",
+            maxTokens: 16384,
+            temperature: 0.2,
         });
-    // Wait for Vue to update the DOM and make the new message element available, before continuing
+
+        let jsonResponse = null;
+        for await (const chunk of generator) {
+            if (chunk.type === "complete") {
+                jsonResponse = chunk.data;
+            }
+        }
+
+        if (!jsonResponse) {
+            throw new Error("No response from AI provider");
+        }
+
+        let timestamp = Date.now().toString();
+        let newGame = {
+            id: timestamp,
+            prompt: JSON.stringify(prompt),
+            content: JSON.stringify(jsonResponse),
+        };
+
+        await idbClient.addItem(newGame);
+
+        game.value = jsonResponse;
+        loadedGame.value = timestamp;
+        gameList.value.push({
+            id: timestamp,
+            title: jsonResponse.title,
+            description: jsonResponse.description,
+            controls: jsonResponse.controls,
+            rules: jsonResponse.rules,
+        });
+        state.value = "done";
+        console.log("Game generated");
+    } catch (error) {
+        console.error("Failed to generate game:", error);
+        state.value = "error";
+        debugMessage.value = error.message || String(error);
+    }
+
     await nextTick();
 };
 
@@ -111,16 +146,17 @@ const gameStates = ref({
     loading: { message: "Loading game...", style: "", duration: 1000 },
     done: {
         message: "",
-        style: "width: calc(100vw - 50px);height: calc(100vh - 275px);",
+        style: "",
         duration: 0,
     },
-    error: { message: "Failed to load game", style: "", duration: 0 },
+    error: { message: "", style: "", duration: 0 },
 });
 
 // Make sure to initiate the IndexedDB object store
-onMounted(() => {
+onMounted(async () => {
     idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
-    if (apiKey.value === "") {
+    await connectProvider();
+    if (!apiKey.value) {
         showSettings.value = true;
     }
 });
@@ -149,16 +185,19 @@ watch(game, (newVal) => {
 
 <template>
     <q-layout view="hHh Lpr lfF" class="JetBrainsMono-font text-primary">
-        <q-header>
+        <q-header class="safe-area-header">
             <q-toolbar class="bg-grey-10">
                 <q-btn
                     flat
                     dense
                     round
                     icon="mdi-menu"
-                    aria-label="Meny"
+                    aria-label="Menu"
                     @click="drawer = !drawer"
                 />
+                <q-toolbar-title v-if="state === 'done'" class="text-subtitle2 ellipsis">
+                    {{ game.title }}
+                </q-toolbar-title>
             </q-toolbar>
         </q-header>
         <q-drawer
@@ -201,29 +240,32 @@ watch(game, (newVal) => {
         </q-drawer>
 
         <q-page-container>
-            <q-page id="page">
+            <q-page id="page" class="game-page">
                 <Settings v-model="showSettings" />
                 <Login v-model="showLogin" />
 
-                <q-card
-                    bordered
-                    flat
-                    class="absolute-center text-center q-pa-sm JetBrainsMono-font text-primary"
-                    :style="gameStates[state].style"
-                >
-                    {{ gameStates[state].message }}
+                <div v-if="state !== 'done'" class="status-container">
+                    <div class="text-center q-pa-md">
+                        {{ gameStates[state].message }}
+                        {{ state === 'error' ? debugMessage : '' }}
 
-                    <q-spinner-gears
-                        v-if="state == 'generating' || state == 'loading'"
-                        class="q-pa-lg"
-                        color="primary"
-                        size="8em"
-                    />
-                    <GameContainer v-if="state == 'done'" :game="game" />
-                </q-card>
+                        <q-spinner-gears
+                            v-if="state === 'generating' || state === 'loading'"
+                            class="q-pa-lg"
+                            color="primary"
+                            size="8em"
+                        />
+                    </div>
+                </div>
+
+                <GameContainer
+                    v-if="state === 'done'"
+                    :game="game"
+                    class="game-container-full"
+                />
             </q-page>
         </q-page-container>
-        <q-footer class="bg-grey-10 fixed">
+        <q-footer class="bg-grey-10 safe-area-footer">
             <UserInput />
         </q-footer>
     </q-layout>
@@ -242,5 +284,40 @@ body {
 /* Hide scrollbars in Firefox */
 html {
     scrollbar-width: none;
+}
+
+/* iOS safe area support */
+.safe-area-header {
+    padding-top: var(--safe-area-top);
+}
+.safe-area-footer {
+    padding-bottom: var(--safe-area-bottom);
+}
+
+/* Game page fills available space */
+.game-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.status-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.game-container-full {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Prevent iOS rubber-banding on the game area */
+.game-container-full iframe {
+    touch-action: none;
+    -webkit-overflow-scrolling: auto;
 }
 </style>

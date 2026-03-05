@@ -93,3 +93,36 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target ${{ matrix.target }}
+
+  build-ios:
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Initialize iOS project
+        run: yarn tauri ios init
+
+      - name: Build iOS (simulator)
+        run: yarn tauri ios build --target aarch64-apple-ios-sim
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -39,7 +39,7 @@ const remainingCharactersText = computed(() => {
             dense
             filled
             id="user-input"
-            style="width: calc(90vw)"
+            style="width: min(90vw, 800px)"
             type="textarea"
             v-model="userInput"
             :label="
