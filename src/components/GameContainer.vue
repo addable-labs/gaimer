@@ -1,50 +1,58 @@
 <script setup>
-import { nextTick, onMounted, ref, watchEffect } from "vue";
+import { nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import { useQuasar } from "quasar";
+import { createSandbox } from "../engine/sandbox.js";
 
 const { game } = defineProps(["game"]);
 const $q = useQuasar();
 
-async function loadGameScript() {
-    // Get the game container and script elements
-    const gameContainer = document.getElementById("game-container");
-    const scriptsContainer = document.getElementById("game-scripts");
+let sandbox = null;
 
-    // Remove any existing script nodes
-    while (scriptsContainer.firstChild) {
-        scriptsContainer.removeChild(scriptsContainer.firstChild);
+function loadGameScript() {
+    const container = document.getElementById("game-container");
+    if (!container || !game.code) return;
+
+    // Destroy previous sandbox if it exists
+    if (sandbox) {
+        sandbox.destroy();
+        sandbox = null;
     }
 
-    await nextTick();
+    // Create a new sandboxed iframe for the game
+    sandbox = createSandbox(container, {
+        width: screenSize.value.width,
+        height: screenSize.value.height,
+    });
 
-    // Create a new script element
-    const gameScripts = document.createElement("script");
+    // Listen for messages from the sandbox
+    sandbox.onMessage((msg) => {
+        if (msg.type === "error") {
+            console.error("Game error:", msg.data?.message);
+            $q.notify({
+                message: `Game error: ${msg.data?.message || "Unknown error"}`,
+                position: "top",
+                color: "negative",
+            });
+        } else if (msg.type === "ready") {
+            console.log("Game ready in sandbox");
+        }
+    });
 
-    // Wrap the generated JavaScript code in an IIFE to create a new scope for each game.
-    // Variables and functions are scoped within the function and won’t pollute the global scope.
-    // IIFE = Immediately Invoked Function Expression
-    gameScripts.textContent = `
-        (function() {
-            // Your game code here
-            // const canvas = document.getElementById('game-canvas');
-            ${game.code}
-        })();
-    `;
+    // Load the game code into the sandbox
+    sandbox.loadGame(game.code);
+}
 
-    // Append the game script to the scripts container
-    scriptsContainer.appendChild(gameScripts);
-
-    // Wait for the DOM to update after appending the script
-    await nextTick();
-
-    // Run the game script
-    const scripts = gameContainer.getElementsByTagName("script");
-    for (let i = 0; i < scripts.length; i++) {
-        eval(scripts[i].text); // Run the script content
+// Handle visibility changes for pause/resume
+function handleVisibilityChange() {
+    if (!sandbox) return;
+    if (document.hidden) {
+        sandbox.postMessage("pause", {});
+    } else {
+        sandbox.postMessage("resume", {});
     }
 }
 
-// Game info to display below th egame canvas
+// Game info to display below the game canvas
 const gameInfo = ref([
     { text: game.controls, icon: "mdi-gamepad-outline" },
     { text: game.rules, icon: "mdi-book-open-variant-outline" },
@@ -57,10 +65,9 @@ const displayNotification = (message) => {
     });
 };
 
-watchEffect(async (game) => {
+watchEffect(async () => {
     console.log("Game content updated");
     await nextTick();
-    // runGame();
     loadGameScript();
 });
 
@@ -71,6 +78,7 @@ const screenSize = ref({
 
 const calculateCanvasSize = () => {
     let parentElement = document.getElementById("game-container");
+    if (!parentElement) return screenSize.value;
     let rect = parentElement.getBoundingClientRect();
 
     return {
@@ -81,18 +89,20 @@ const calculateCanvasSize = () => {
 
 onMounted(() => {
     screenSize.value = calculateCanvasSize();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+
+onBeforeUnmount(() => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (sandbox) {
+        sandbox.destroy();
+        sandbox = null;
+    }
 });
 </script>
 
 <template>
-    <div id="game-container" class="width: 100%; height=100%">
-        <canvas
-            id="game-canvas"
-            :width="screenSize.width"
-            :height="screenSize.height"
-            class="bg-grey-9"
-        ></canvas>
-        <div id="game-scripts"></div>
+    <div id="game-container" style="width: 100%; height: 100%">
     </div>
     <div id="game-info">
         <q-card dense flat class="JetBrainsMono-font text-primary" dark>
