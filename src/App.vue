@@ -17,7 +17,7 @@ import Login from "./components/Login.vue";
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const providerStore = useProviderStore();
-const { gameDescription, loadedGame, gameList } = storeToRefs(appStore);
+const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
 const { apiKey, userName, userAvatar } = storeToRefs(persistedStore);
 
 // Set up provider registry
@@ -64,6 +64,7 @@ const generateGame = async (prompt) => {
     }
 
     state.value = "generating";
+    generating.value = true;
 
     try {
         const generator = provider.generateGame(prompt, {
@@ -108,6 +109,8 @@ const generateGame = async (prompt) => {
         console.error("Failed to generate game:", error);
         state.value = "error";
         debugMessage.value = error.message || String(error);
+    } finally {
+        generating.value = false;
     }
 
     await nextTick();
@@ -155,6 +158,7 @@ const gameStates = ref({
 // Make sure to initiate the IndexedDB object store
 onMounted(async () => {
     idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
+    await persistedStore.init();
     await connectProvider();
     if (!apiKey.value) {
         showSettings.value = true;

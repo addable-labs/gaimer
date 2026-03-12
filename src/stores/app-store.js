@@ -6,10 +6,12 @@ export const useAppStore = defineStore("app-store", () => {
     const gameDescription = ref("");
     const loadedGame = ref(null);
     const gameList = ref([]);
+    const generating = ref(false);
 
     return {
         gameDescription,
         loadedGame,
         gameList,
+        generating,
     };
 });

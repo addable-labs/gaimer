@@ -1,9 +1,13 @@
 import { ref, watch } from "vue";
 import { defineStore } from "pinia";
+import { createCredentialStore } from "../credentials/credential-store.js";
+
+const credentials = createCredentialStore();
 
 export const usePersistedStore = defineStore("persisted-store", () => {
-    // OpenAI API key
-    const apiKey = ref(loadStateFromLocalStorage("apiKey") || "");
+    // OpenAI API key – loaded asynchronously from credential store
+    const apiKey = ref("");
+    const apiKeyReady = ref(false);
 
     // Firebase user
     const user = ref(loadStateFromLocalStorage("fb_user") || "");
@@ -19,8 +23,31 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         return value ? JSON.parse(value) : null;
     }
 
-    watch(apiKey, (newValue) => {
-        saveStateToLocalStorage("apiKey", newValue);
+    // Load API key from credential store (and migrate from localStorage if needed)
+    async function init() {
+        const stored = await credentials.get("openai", "apiKey");
+        if (stored) {
+            apiKey.value = stored;
+        } else {
+            // One-time migration from localStorage
+            const legacy = loadStateFromLocalStorage("apiKey");
+            if (legacy) {
+                apiKey.value = legacy;
+                await credentials.set("openai", "apiKey", legacy);
+                localStorage.removeItem("apiKey");
+            }
+        }
+        apiKeyReady.value = true;
+    }
+
+    // Persist API key changes to credential store
+    watch(apiKey, async (newValue) => {
+        if (!apiKeyReady.value) return;
+        if (newValue) {
+            await credentials.set("openai", "apiKey", newValue);
+        } else {
+            await credentials.remove("openai", "apiKey");
+        }
     });
 
     watch(user, (newValue) => {
@@ -29,13 +56,14 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     watch(userName, (newValue) => {
         saveStateToLocalStorage("fb_userName", newValue);
     });
-
     watch(userAvatar, (newValue) => {
         saveStateToLocalStorage("fb_userAvatar", newValue);
     });
 
     return {
         apiKey,
+        apiKeyReady,
+        init,
         user,
         userName,
         userAvatar,
