@@ -1,5 +1,5 @@
 {
-    "$schema": "../gen/schemas/desktop-schema.json",
+    "$schema": "",
     "identifier": "default",
     "description": "Capability for the main window",
     "windows": ["main"],
@@ -8,11 +8,15 @@
         "shell:allow-open",
         "fs:default",
         "http:default",
+        "stronghold:default",
         {
             "identifier": "http:default",
             "allow": [
                 {
                     "url": "https://api.openai.com/*"
+                },
+                {
+                    "url": "https://api.anthropic.com/*"
                 }
             ]
         }

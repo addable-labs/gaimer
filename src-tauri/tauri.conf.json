@@ -11,11 +11,15 @@
     "app": {
         "windows": [
             {
-                "title": "gaimer"
+                "title": "gaimer",
+                "fullscreen": false,
+                "resizable": true,
+                "width": 1024,
+                "height": 768
             }
         ],
         "security": {
-            "csp": null
+            "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.firebaseio.com https://*.googleapis.com; frame-src 'self' blob:"
         }
     },
     "bundle": {
@@ -27,6 +31,9 @@
             "icons/128x128@2x.png",
             "icons/icon.icns",
             "icons/icon.ico"
-        ]
+        ],
+        "iOS": {
+            "minimumSystemVersion": "15.0"
+        }
     }
 }

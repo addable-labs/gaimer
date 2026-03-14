@@ -29,7 +29,7 @@ function closeDialog() {
 
 <template>
     <q-dialog v-model="model">
-        <q-card style="width: 350px; max-width: 75vw">
+        <q-card style="width: 350px; max-width: 85vw">
             <q-card-section>
                 <div class="text-h6">Settings</div>
             </q-card-section>
@@ -39,9 +39,10 @@ function closeDialog() {
                     dense
                     filled
                     autofocus
-                    id="user-input"
+                    id="settings-api-key"
                     v-model="userInput"
-                    label="Enter your API key..."
+                    label="OpenAI API key"
+                    type="password"
                     @keydown.enter="handleInput()"
                 />
             </q-card-section>

@@ -20,7 +20,7 @@ async function handleUserInput() {
     gameDescription.value = userInput.value;
     userInput.value = "";
 
-    Document.getElementById("user-input").blur();
+    document.getElementById("user-input")?.blur();
 }
 
 const remainingCharactersText = computed(() => {
@@ -39,7 +39,7 @@ const remainingCharactersText = computed(() => {
             dense
             filled
             id="user-input"
-            style="width: calc(90vw)"
+            style="width: min(90vw, 800px)"
             type="textarea"
             v-model="userInput"
             :label="
