@@ -1,10 +1,10 @@
 {
     "productName": "gaimer",
     "version": "0.1.0",
-    "identifier": "com.gaimer.app",
+    "identifier": "com.gaimer.desktop",
     "build": {
         "beforeDevCommand": "yarn dev",
-        "devUrl": "http://localhost:1420",
+        "devUrl": "http://localhost:1430",
         "beforeBuildCommand": "yarn build",
         "frontendDist": "../dist"
     },

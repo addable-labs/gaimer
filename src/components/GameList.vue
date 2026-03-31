@@ -1,10 +1,22 @@
 <template>
     <q-list>
         <q-item-label header>Game List</q-item-label>
-        <q-item v-for="game in gameList" :key="game.id" clickable>
+        <q-item
+            v-for="game in gameList"
+            :key="game.id"
+            clickable
+            :active="loadedGame === game.id"
+            active-class="text-primary bg-grey-9"
+            @click="$emit('loadGame', game.id)"
+        >
             <q-item-section>
-                <q-item-label @click="$emit('loadGame', game.id)"
-                    >{{ game.title }}
+                <q-item-label>
+                    <q-icon
+                        v-if="loadedGame === game.id"
+                        name="mdi-play"
+                        size="xs"
+                        class="q-mr-xs"
+                    />{{ game.title }}
                     <q-tooltip
                         :delay="100"
                         max-width="300px"
@@ -66,7 +78,7 @@ import IndexedDBClient from "../helpers/indexeddb.js";
 import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
 const appStore = useAppStore();
-const { gameList } = storeToRefs(appStore);
+const { gameList, loadedGame } = storeToRefs(appStore);
 
 const idbClient = IndexedDBClient();
 

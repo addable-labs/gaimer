@@ -104,6 +104,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+    <div class="game-container-root">
     <div ref="containerRef" class="game-canvas-wrapper">
     </div>
     <div class="game-info-bar">
@@ -126,15 +127,29 @@ onBeforeUnmount(() => {
             </q-tooltip>
         </q-btn>
     </div>
+    </div>
 </template>
 
 <style scoped>
+.game-container-root {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
 .game-canvas-wrapper {
     flex: 1;
     width: 100%;
     min-height: 0;
     overflow: hidden;
     background: #1a1a1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.game-canvas-wrapper :deep(iframe) {
+    max-width: 100%;
+    max-height: 100%;
 }
 
 .game-info-bar {

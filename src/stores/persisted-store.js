@@ -9,6 +9,9 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     const apiKey = ref("");
     const apiKeyReady = ref(false);
 
+    // Selected AI provider
+    const selectedProvider = ref(loadStateFromLocalStorage("selectedProvider") || "openai");
+
     // Firebase user
     const user = ref(loadStateFromLocalStorage("fb_user") || "");
     const userName = ref(loadStateFromLocalStorage("fb_userName") || "");
@@ -25,17 +28,23 @@ export const usePersistedStore = defineStore("persisted-store", () => {
 
     // Load API key from credential store (and migrate from localStorage if needed)
     async function init() {
-        const stored = await credentials.get("openai", "apiKey");
-        if (stored) {
-            apiKey.value = stored;
-        } else {
-            // One-time migration from localStorage
-            const legacy = loadStateFromLocalStorage("apiKey");
-            if (legacy) {
-                apiKey.value = legacy;
-                await credentials.set("openai", "apiKey", legacy);
-                localStorage.removeItem("apiKey");
+        try {
+            const stored = await credentials.get("openai", "apiKey");
+            if (stored) {
+                apiKey.value = stored;
+            } else {
+                // One-time migration from localStorage
+                const legacy = loadStateFromLocalStorage("apiKey");
+                if (legacy) {
+                    apiKey.value = legacy;
+                    await credentials.set("openai", "apiKey", legacy);
+                    localStorage.removeItem("apiKey");
+                }
             }
+        } catch (err) {
+            console.warn("Credential store init failed, falling back to localStorage:", err);
+            const legacy = loadStateFromLocalStorage("apiKey");
+            if (legacy) apiKey.value = legacy;
         }
         apiKeyReady.value = true;
     }
@@ -48,6 +57,10 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         } else {
             await credentials.remove("openai", "apiKey");
         }
+    });
+
+    watch(selectedProvider, (newValue) => {
+        saveStateToLocalStorage("selectedProvider", newValue);
     });
 
     watch(user, (newValue) => {
@@ -63,6 +76,7 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     return {
         apiKey,
         apiKeyReady,
+        selectedProvider,
         init,
         user,
         userName,

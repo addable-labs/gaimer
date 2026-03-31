@@ -36,9 +36,14 @@ function createStrongholdStore() {
   async function getClient() {
     const stronghold = await getStronghold()
     try {
-      return stronghold.loadClient(STRONGHOLD_VAULT)
+      return await stronghold.loadClient(STRONGHOLD_VAULT)
     } catch {
-      return stronghold.createClient(STRONGHOLD_VAULT)
+      try {
+        return await stronghold.createClient(STRONGHOLD_VAULT)
+      } catch {
+        // Vault already exists but couldn't load — try loading again
+        return await stronghold.loadClient(STRONGHOLD_VAULT)
+      }
     }
   }
 
@@ -157,7 +162,22 @@ function createInMemoryStore() {
 
 export function createCredentialStore() {
   if (isTauri()) {
-    return createStrongholdStore()
+    // Wrap Stronghold store so any failure falls back to in-memory
+    const stronghold = createStrongholdStore()
+    const fallback = createInMemoryStore()
+    const methods = ['get', 'set', 'remove', 'removeAll', 'has', 'listProviders']
+    const safe = {}
+    for (const m of methods) {
+      safe[m] = async (...args) => {
+        try {
+          return await stronghold[m](...args)
+        } catch (err) {
+          console.warn(`Credential store (${m}) failed, using fallback:`, err)
+          return fallback[m](...args)
+        }
+      }
+    }
+    return safe
   }
   return createInMemoryStore()
 }

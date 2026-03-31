@@ -6,7 +6,28 @@
     "permissions": [
         "core:default",
         "shell:allow-open",
+        "shell:allow-spawn",
+        "shell:allow-execute",
+        "shell:allow-stdin-write",
+        {
+            "identifier": "shell:allow-spawn",
+            "allow": [
+                {
+                    "name": "shell-cmd",
+                    "cmd": "/bin/zsh",
+                    "args": true
+                },
+                {
+                    "name": "open-app",
+                    "cmd": "open",
+                    "args": true
+                }
+            ]
+        },
         "fs:default",
+        "fs:allow-temp-write",
+        "fs:allow-temp-read",
+        "fs:allow-temp-meta",
         "http:default",
         "stronghold:default",
         {

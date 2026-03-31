@@ -36,7 +36,7 @@ export const getSystemMessage = () => {
             "player": "Player Description",
             "power-ups": "Power-ups Description",
             "rewards": "Rewards Description",
-            "other": "Other Game Mechanics"
+            "other": "Other Game Mechanics",
             "code": "The plain JavaScript code, with NO <script> tags"
         }
 

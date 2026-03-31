@@ -6,6 +6,7 @@ import { useProviderStore } from "./stores/provider-store.js";
 import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
+import { createAnthropicProvider } from "./providers/anthropic-provider.js";
 import IndexedDBClient from "./helpers/indexeddb.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
@@ -18,33 +19,62 @@ const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const providerStore = useProviderStore();
 const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
-const { apiKey, userName, userAvatar } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, userName, userAvatar } = storeToRefs(persistedStore);
 
-// Set up provider registry
+// Set up provider registry with both providers
 const registry = createProviderRegistry();
 const openaiProvider = createOpenAIProvider();
+const anthropicProvider = createAnthropicProvider();
 registry.register(openaiProvider);
+registry.register(anthropicProvider);
 
-// Connect OpenAI provider if API key exists
-async function connectProvider() {
-    if (apiKey.value) {
+// Connect the selected provider
+async function connectActiveProvider() {
+    const id = selectedProvider.value;
+
+    if (id === "openai" && apiKey.value) {
         const result = await openaiProvider.connect({ apiKey: apiKey.value });
         if (result.success) {
             registry.setActive("openai");
             providerStore.setActiveProvider("openai");
             providerStore.addConnection("openai", { connected: true, authMethod: "apikey" });
         }
+    } else if (id === "anthropic") {
+        const result = await anthropicProvider.connect();
+        if (result.success) {
+            registry.setActive("anthropic");
+            providerStore.setActiveProvider("anthropic");
+            providerStore.addConnection("anthropic", { connected: true, authMethod: "subscription" });
+        } else {
+            console.warn("Anthropic connect:", result.error);
+            providerStore.removeConnection("anthropic");
+        }
     }
 }
 
-// Re-connect when API key changes
+// Re-connect when API key changes (OpenAI)
 watch(apiKey, async () => {
+    if (selectedProvider.value !== "openai") return;
     if (openaiProvider.isConnected()) {
         await openaiProvider.disconnect();
         providerStore.removeConnection("openai");
     }
-    await connectProvider();
+    await connectActiveProvider();
 });
+
+// Handle provider switching or connection events from Settings/ConnectClaude
+async function onProviderChanged(id) {
+    // Disconnect previous provider if switching away
+    const prev = registry.getActive();
+    if (prev && prev.id !== id) {
+        await prev.disconnect();
+        providerStore.removeConnection(prev.id);
+    }
+
+    // Always run the full connect flow to ensure both the provider object
+    // and the registry are properly wired up
+    await connectActiveProvider();
+}
 
 const idbClient = IndexedDBClient();
 
@@ -59,7 +89,7 @@ const generateGame = async (prompt) => {
     const provider = registry.getActive();
     if (!provider) {
         state.value = "error";
-        debugMessage.value = "No AI provider connected. Please set your API key in Settings.";
+        debugMessage.value = "No AI provider connected. Open Settings to connect.";
         return;
     }
 
@@ -67,9 +97,10 @@ const generateGame = async (prompt) => {
     generating.value = true;
 
     try {
+        const isAnthropic = provider.id === "anthropic";
         const generator = provider.generateGame(prompt, {
             systemMessage: getSystemMessage(),
-            model: "gpt-4o",
+            model: isAnthropic ? "claude-sonnet-4-6" : "gpt-4o",
             maxTokens: 16384,
             temperature: 0.2,
         });
@@ -157,10 +188,15 @@ const gameStates = ref({
 
 // Make sure to initiate the IndexedDB object store
 onMounted(async () => {
-    idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
-    await persistedStore.init();
-    await connectProvider();
-    if (!apiKey.value) {
+    try {
+        idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
+        await persistedStore.init();
+        await connectActiveProvider();
+    } catch (err) {
+        console.warn("Startup error (non-fatal):", err);
+    }
+    // Show settings if no provider is connected
+    if (!registry.getActive()) {
         showSettings.value = true;
     }
 });
@@ -245,7 +281,7 @@ watch(game, (newVal) => {
 
         <q-page-container>
             <q-page id="page" class="game-page">
-                <Settings v-model="showSettings" />
+                <Settings v-model="showSettings" @providerChanged="onProviderChanged" />
                 <Login v-model="showLogin" />
 
                 <div v-if="state !== 'done'" class="status-container">

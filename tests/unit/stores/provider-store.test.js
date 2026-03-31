@@ -5,7 +5,6 @@ import { useProviderStore } from '../../../src/stores/provider-store.js'
 describe('provider-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    localStorage.clear()
   })
 
   it('has no active provider initially', () => {
