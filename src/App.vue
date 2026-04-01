@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onMounted, ref, watch } from "vue";
+import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
 import { useProviderStore } from "./stores/provider-store.js";
@@ -7,19 +7,19 @@ import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
 import { createAnthropicProvider } from "./providers/anthropic-provider.js";
-import IndexedDBClient from "./helpers/indexeddb.js";
+import { initStorage, saveGame, loadGame as loadGameFromFS, listGames } from "./helpers/game-storage.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameList from "./components/GameList.vue";
 import GameContainer from "./components/GameContainer.vue";
 import { getSystemMessage } from "./helpers/prompts.js";
-import Login from "./components/Login.vue";
+import { safeParseGameJSON } from "./helpers/json-utils.js";
 
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const providerStore = useProviderStore();
 const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
-const { apiKey, selectedProvider, userName, userAvatar } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, selectedModel } = storeToRefs(persistedStore);
 
 // Set up provider registry with both providers
 const registry = createProviderRegistry();
@@ -76,13 +76,23 @@ async function onProviderChanged(id) {
     await connectActiveProvider();
 }
 
-const idbClient = IndexedDBClient();
 
 const drawer = ref(false);
 const showSettings = ref(false);
-const showLogin = ref(false);
 
 let game = ref({ id: "", prompts: [] });
+const lastPrompt = ref("");
+const elapsedSeconds = ref(0);
+let elapsedTimer = null;
+
+function startElapsedTimer() {
+    elapsedSeconds.value = 0;
+    elapsedTimer = setInterval(() => { elapsedSeconds.value++; }, 1000);
+}
+
+function stopElapsedTimer() {
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+}
 
 // Generate a new game using the active provider
 const generateGame = async (prompt) => {
@@ -95,12 +105,15 @@ const generateGame = async (prompt) => {
 
     state.value = "generating";
     generating.value = true;
+    lastPrompt.value = prompt;
+    startElapsedTimer();
 
     try {
         const isAnthropic = provider.id === "anthropic";
+        const defaultModel = isAnthropic ? "claude-sonnet-4-6" : "gpt-4o";
         const generator = provider.generateGame(prompt, {
             systemMessage: getSystemMessage(),
-            model: isAnthropic ? "claude-sonnet-4-6" : "gpt-4o",
+            model: selectedModel.value || defaultModel,
             maxTokens: 16384,
             temperature: 0.2,
         });
@@ -123,7 +136,7 @@ const generateGame = async (prompt) => {
             content: JSON.stringify(jsonResponse),
         };
 
-        await idbClient.addItem(newGame);
+        await saveGame(newGame);
 
         game.value = jsonResponse;
         loadedGame.value = timestamp;
@@ -142,28 +155,29 @@ const generateGame = async (prompt) => {
         debugMessage.value = error.message || String(error);
     } finally {
         generating.value = false;
+        stopElapsedTimer();
     }
 
     await nextTick();
 };
 
-// Load selected game from IndexedDB
+// Load selected game from filesystem
 const loadGame = async (id) => {
     state.value = "loading";
     loadedGame.value = id;
-    idbClient
-        .getItem(id)
-        .then((item) => {
-            game.value = JSON.parse(item.content);
-            setTimeout(() => {
-                state.value = "done";
-            }, gameStates.value.loading.duration);
-        })
-        .catch((error) => {
-            console.error("Failed to load game:", id, error);
-            state.value = "error";
-            debugMessage.value = error;
-        });
+    try {
+        const item = await loadGameFromFS(id);
+        const result = safeParseGameJSON(item.content);
+        if (!result.ok) throw new Error(result.error);
+        game.value = result.data;
+        setTimeout(() => {
+            state.value = "done";
+        }, gameStates.value.loading.duration);
+    } catch (error) {
+        console.error("Failed to load game:", id, error);
+        state.value = "error";
+        debugMessage.value = error.message || String(error);
+    }
 };
 
 const debugMessage = ref("no problems here!");
@@ -187,9 +201,15 @@ const gameStates = ref({
 });
 
 // Make sure to initiate the IndexedDB object store
+onBeforeUnmount(() => { stopElapsedTimer(); });
+
 onMounted(async () => {
     try {
-        idbClient.initDB().then(() => console.log("[app] IndexedDB initialized"));
+        await initStorage();
+        // Load game list after storage is ready (including migration)
+        if (gameList.value.length === 0) {
+            gameList.value = await listGames();
+        }
         await persistedStore.init();
         await connectActiveProvider();
     } catch (err) {
@@ -249,22 +269,7 @@ watch(game, (newVal) => {
             <GameList @loadGame="loadGame" />
 
             <q-item v-ripple class="fixed-bottom q-pa-md">
-                <q-item-section side>
-                    <q-avatar v-if="userAvatar" rounded size="48px">
-                        <img :src="userAvatar" />
-                    </q-avatar>
-                    <q-btn
-                        v-else
-                        flat
-                        color="primary"
-                        dense
-                        icon="mdi-login"
-                        label="Login"
-                        @click.stop="showLogin = true"
-                    />
-                </q-item-section>
                 <q-item-section>
-                    <q-item-label>{{ userName }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
                     <q-btn
@@ -281,13 +286,19 @@ watch(game, (newVal) => {
 
         <q-page-container>
             <q-page id="page" class="game-page">
-                <Settings v-model="showSettings" @providerChanged="onProviderChanged" />
-                <Login v-model="showLogin" />
+                <Settings v-model="showSettings" :registry="registry" @providerChanged="onProviderChanged" />
 
                 <div v-if="state !== 'done'" class="status-container">
                     <div class="text-center q-pa-md">
-                        {{ gameStates[state].message }}
-                        {{ state === 'error' ? debugMessage : '' }}
+                        <!-- Idle / Loading -->
+                        <template v-if="state === 'idle' || state === 'loading'">
+                            {{ gameStates[state].message }}
+                        </template>
+
+                        <!-- Generating with timer -->
+                        <template v-if="state === 'generating'">
+                            <div class="text-body1 q-mb-sm">Generating game... ({{ elapsedSeconds }}s)</div>
+                        </template>
 
                         <q-spinner-gears
                             v-if="state === 'generating' || state === 'loading'"
@@ -295,6 +306,25 @@ watch(game, (newVal) => {
                             color="primary"
                             size="8em"
                         />
+
+                        <!-- Error with retry -->
+                        <template v-if="state === 'error'">
+                            <q-banner rounded class="bg-grey-9 text-white q-mb-md">
+                                <template v-slot:avatar>
+                                    <q-icon name="mdi-alert-circle" color="negative" />
+                                </template>
+                                {{ debugMessage }}
+                            </q-banner>
+                            <q-btn
+                                v-if="lastPrompt"
+                                outline
+                                no-caps
+                                color="grey-5"
+                                label="Retry"
+                                icon="mdi-refresh"
+                                @click="generateGame(lastPrompt)"
+                            />
+                        </template>
                     </div>
                 </div>
 

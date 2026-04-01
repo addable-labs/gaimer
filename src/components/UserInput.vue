@@ -42,6 +42,7 @@ const remainingCharactersText = computed(() => {
             style="width: min(90vw, 800px)"
             type="textarea"
             v-model="userInput"
+            :disable="generating"
             :label="
                 userInput.length == 0
                     ? 'Describe your game...'

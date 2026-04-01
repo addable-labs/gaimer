@@ -109,7 +109,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -123,6 +123,6 @@ jobs:
         run: yarn tauri ios init
 
       - name: Build iOS (simulator)
-        run: yarn tauri ios build --target aarch64-apple-ios-sim
+        run: yarn tauri ios build --target aarch64-sim
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

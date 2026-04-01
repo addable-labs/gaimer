@@ -28,6 +28,19 @@
         "fs:allow-temp-write",
         "fs:allow-temp-read",
         "fs:allow-temp-meta",
+        "fs:allow-mkdir",
+        "fs:allow-read-file",
+        "fs:allow-write-file",
+        "fs:allow-read-dir",
+        "fs:allow-remove",
+        "fs:allow-exists",
+        {
+            "identifier": "fs:scope",
+            "allow": [
+                "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Gaimer",
+                "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Gaimer/**"
+            ]
+        },
         "http:default",
         "stronghold:default",
         {

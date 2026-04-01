@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { safeParseGameJSON } from "../helpers/json-utils.js";
 
 /**
  * Creates an OpenAI provider implementing the AIProvider interface.
@@ -41,6 +42,23 @@ export function createOpenAIProvider() {
             return connected;
         },
 
+        async listModels() {
+            if (!client) return [];
+            try {
+                const response = await client.models.list();
+                const chatModels = [];
+                for await (const model of response) {
+                    if (model.id.startsWith("gpt-4") || model.id.startsWith("gpt-3.5")) {
+                        chatModels.push(model.id);
+                    }
+                }
+                chatModels.sort();
+                return chatModels;
+            } catch {
+                return ["gpt-4o", "gpt-4o-mini"];
+            }
+        },
+
         async *generateGame(prompt, options = {}) {
             if (!client) throw new Error("Provider not connected");
 
@@ -63,7 +81,11 @@ export function createOpenAIProvider() {
             const content = response.choices[0]?.message?.content;
             if (!content) throw new Error("Empty response from OpenAI");
 
-            yield { type: "complete", data: JSON.parse(content) };
+            const result = safeParseGameJSON(content);
+            if (!result.ok) {
+                throw new Error(`Failed to parse game response: ${result.error}`);
+            }
+            yield { type: "complete", data: result.data };
         },
 
         async generateSprite(description, style = {}) {

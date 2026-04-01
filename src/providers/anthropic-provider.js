@@ -1,4 +1,5 @@
 import { shellExec, shellExecWithInput } from "../helpers/shell.js";
+import { safeParseGameJSON } from "../helpers/json-utils.js";
 
 /**
  * Creates an Anthropic provider that uses the Claude CLI (Claude Code).
@@ -58,6 +59,14 @@ export function createAnthropicProvider() {
             return connected;
         },
 
+        async listModels() {
+            return [
+                "claude-sonnet-4-6",
+                "claude-opus-4-6",
+                "claude-haiku-4-5",
+            ];
+        },
+
         async *generateGame(prompt, options = {}) {
             if (!connected)
                 throw new Error("Provider not connected");
@@ -74,20 +83,11 @@ export function createAnthropicProvider() {
             // Write prompt to temp file and redirect to stdin
             const output = await shellExecWithInput(cmd, fullPrompt);
 
-            // Claude may wrap response in markdown code fences — strip them
-            let cleaned = output.trim();
-            if (cleaned.startsWith("```json")) {
-                cleaned = cleaned.slice(7);
-            } else if (cleaned.startsWith("```")) {
-                cleaned = cleaned.slice(3);
+            const result = safeParseGameJSON(output);
+            if (!result.ok) {
+                throw new Error(`Failed to parse game response: ${result.error}`);
             }
-            if (cleaned.endsWith("```")) {
-                cleaned = cleaned.slice(0, -3);
-            }
-            cleaned = cleaned.trim();
-
-            const jsonResponse = JSON.parse(cleaned);
-            yield { type: "complete", data: jsonResponse };
+            yield { type: "complete", data: result.data };
         },
 
         async generateSprite() {

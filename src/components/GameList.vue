@@ -73,43 +73,18 @@
 </template>
 
 <script setup>
-import { onMounted } from "vue";
-import IndexedDBClient from "../helpers/indexeddb.js";
+import { deleteGame as deleteGameFromFS } from "../helpers/game-storage.js";
 import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
 const appStore = useAppStore();
 const { gameList, loadedGame } = storeToRefs(appStore);
 
-const idbClient = IndexedDBClient();
-
 const deleteGame = async (id) => {
-    idbClient
-        .deleteItem(id)
-        .then(() => {
-            gameList.value = gameList.value.filter((game) => game.id !== id);
-            console.log(`Delete game: ${id}`);
-        })
-        .catch((error) => {
-            console.error(`Error deleting game: ${id}`, error);
-        });
-};
-
-onMounted(async () => {
-    console.log("GameList mounted");
-    await idbClient.initDB();
-    if (gameList.value.length == 0) {
-        idbClient.listItems().then((items) => {
-            items.forEach((item) => {
-                let content = JSON.parse(item.content);
-                gameList.value.push({
-                    id: item.id,
-                    title: content.title,
-                    description: content.description,
-                    controls: content.controls,
-                    rules: content.rules,
-                });
-            });
-        });
+    try {
+        await deleteGameFromFS(id);
+        gameList.value = gameList.value.filter((game) => game.id !== id);
+    } catch (error) {
+        console.error(`Error deleting game: ${id}`, error);
     }
-});
+};
 </script>

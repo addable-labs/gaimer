@@ -1,14 +1,20 @@
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, onMounted } from "vue";
 import { usePersistedStore } from "../stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import ConnectClaude from "./ConnectClaude.vue";
 
+const props = defineProps({
+    registry: { type: Object, required: true },
+});
+
 const persistedStore = usePersistedStore();
-const { apiKey, selectedProvider } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, selectedModel } = storeToRefs(persistedStore);
 
 const userInput = ref(apiKey.value);
 const providerChoice = ref(selectedProvider.value || "openai");
+const availableModels = ref([]);
+const loadingModels = ref(false);
 
 const emit = defineEmits(["providerChanged"]);
 
@@ -19,24 +25,44 @@ watch(
     }
 );
 
+async function fetchModels(providerId) {
+    const provider = props.registry.get(providerId);
+    if (!provider || !provider.listModels) {
+        availableModels.value = [];
+        return;
+    }
+    loadingModels.value = true;
+    try {
+        availableModels.value = await provider.listModels();
+    } catch {
+        availableModels.value = [];
+    }
+    loadingModels.value = false;
+}
+
 async function handleSaveApiKey() {
     userInput.value = userInput.value.replace(/^\s+|\s+$/g, "");
     if (userInput.value === "") return;
     apiKey.value = userInput.value;
+    // Re-fetch models after key is saved (OpenAI needs it to connect)
+    setTimeout(() => fetchModels("openai"), 500);
 }
 
 function selectProvider(id) {
     providerChoice.value = id;
     selectedProvider.value = id;
     emit("providerChanged", id);
+    fetchModels(id);
 }
 
 function onClaudeConnected() {
     emit("providerChanged", "anthropic");
+    fetchModels("anthropic");
 }
 
 function onClaudeDisconnected() {
     emit("providerChanged", "anthropic");
+    availableModels.value = [];
 }
 
 const model = defineModel({ default: false });
@@ -44,6 +70,11 @@ const model = defineModel({ default: false });
 function closeDialog() {
     model.value = false;
 }
+
+// Fetch models for the current provider on mount
+watch(model, (visible) => {
+    if (visible) fetchModels(providerChoice.value);
+});
 </script>
 
 <template>
@@ -102,6 +133,17 @@ function closeDialog() {
                         </q-btn>
                     </template>
                 </q-input>
+                <q-select
+                    dense
+                    filled
+                    v-model="selectedModel"
+                    :options="availableModels"
+                    :loading="loadingModels"
+                    label="Model"
+                    class="q-mt-md"
+                    emit-value
+                    map-options
+                />
             </q-card-section>
 
             <!-- Anthropic Claude settings -->
@@ -109,6 +151,17 @@ function closeDialog() {
                 <ConnectClaude
                     @connected="onClaudeConnected"
                     @disconnected="onClaudeDisconnected"
+                />
+                <q-select
+                    dense
+                    filled
+                    v-model="selectedModel"
+                    :options="availableModels"
+                    :loading="loadingModels"
+                    label="Model"
+                    class="q-mt-md"
+                    emit-value
+                    map-options
                 />
             </q-card-section>
 

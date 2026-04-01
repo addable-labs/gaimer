@@ -9,13 +9,9 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     const apiKey = ref("");
     const apiKeyReady = ref(false);
 
-    // Selected AI provider
+    // Selected AI provider and model
     const selectedProvider = ref(loadStateFromLocalStorage("selectedProvider") || "openai");
-
-    // Firebase user
-    const user = ref(loadStateFromLocalStorage("fb_user") || "");
-    const userName = ref(loadStateFromLocalStorage("fb_userName") || "");
-    const userAvatar = ref(loadStateFromLocalStorage("fb_userAvatar") || "");
+    const selectedModel = ref(loadStateFromLocalStorage("selectedModel") || "");
 
     function saveStateToLocalStorage(key, value) {
         localStorage.setItem(key, JSON.stringify(value));
@@ -63,23 +59,15 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         saveStateToLocalStorage("selectedProvider", newValue);
     });
 
-    watch(user, (newValue) => {
-        saveStateToLocalStorage("fb_user", newValue);
-    });
-    watch(userName, (newValue) => {
-        saveStateToLocalStorage("fb_userName", newValue);
-    });
-    watch(userAvatar, (newValue) => {
-        saveStateToLocalStorage("fb_userAvatar", newValue);
+    watch(selectedModel, (newValue) => {
+        saveStateToLocalStorage("selectedModel", newValue);
     });
 
     return {
         apiKey,
         apiKeyReady,
         selectedProvider,
+        selectedModel,
         init,
-        user,
-        userName,
-        userAvatar,
     };
 });
