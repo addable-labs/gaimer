@@ -1,17 +1,65 @@
 <script setup>
-import { nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import { useQuasar } from "quasar";
+import { useAppStore } from "../stores/app-store.js";
 import { createSandbox } from "../engine/sandbox.js";
+import { saveGameState, loadGameState } from "../helpers/game-storage.js";
 
 const { game } = defineProps(["game"]);
 const $q = useQuasar();
+const appStore = useAppStore();
+const gameId = computed(() => appStore.loadedGame);
 
 let sandbox = null;
 const containerRef = ref(null);
+const saveSupported = ref(false);
+const saving = ref(false);
+
+async function probeSaveSupport() {
+    if (!sandbox) return;
+    try {
+        await sandbox.requestSave();
+        saveSupported.value = true;
+    } catch {
+        saveSupported.value = false;
+    }
+}
+
+async function checkAndOfferRestore() {
+    if (!saveSupported.value || !gameId.value) return;
+    const stateData = await loadGameState(gameId.value);
+    if (!stateData) return;
+
+    $q.dialog({
+        title: "Restore progress?",
+        message: "A saved game state was found. Would you like to restore it?",
+        dark: true,
+        cancel: { flat: true, color: "grey-5", label: "Start fresh" },
+        ok: { flat: true, color: "primary", label: "Restore" },
+    }).onOk(() => {
+        if (sandbox) sandbox.requestRestore(stateData);
+    });
+}
+
+async function onSave() {
+    if (!sandbox || !gameId.value) return;
+    saving.value = true;
+    try {
+        const stateData = await sandbox.requestSave();
+        await saveGameState(gameId.value, stateData);
+        $q.notify({ message: "Game saved", position: "top", color: "positive", timeout: 1500 });
+    } catch {
+        $q.notify({ message: "Save failed", position: "top", color: "negative", timeout: 2000 });
+    } finally {
+        saving.value = false;
+    }
+}
 
 function loadGameScript() {
     const container = containerRef.value;
     if (!container || !game.code) return;
+
+    saveSupported.value = false;
 
     // Destroy previous sandbox if it exists
     if (sandbox) {
@@ -38,6 +86,8 @@ function loadGameScript() {
             });
         } else if (msg.type === "ready") {
             console.log("Game ready in sandbox");
+            // Probe for save/restore support, then offer restore if available
+            probeSaveSupport().then(() => checkAndOfferRestore());
         }
     });
 
@@ -58,7 +108,6 @@ function handleVisibilityChange() {
 // Handle resize for responsive canvas
 function handleResize() {
     if (!sandbox || !containerRef.value) return;
-    // Reload game with new dimensions
     loadGameScript();
 }
 
@@ -125,6 +174,18 @@ onBeforeUnmount(() => {
             >
                 {{ item.text }}
             </q-tooltip>
+        </q-btn>
+        <q-space />
+        <q-btn
+            v-if="saveSupported"
+            flat
+            dense
+            icon="mdi-content-save"
+            color="grey-5"
+            :loading="saving"
+            @click="onSave"
+        >
+            <q-tooltip :delay="500">Save game</q-tooltip>
         </q-btn>
     </div>
     </div>

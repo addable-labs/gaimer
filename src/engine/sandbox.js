@@ -102,6 +102,49 @@ function __gaimer_sendMessage(type, data) {
       messageHandlers.push(handler)
     },
 
+    /**
+     * Request the game to serialize its state. Resolves with state data
+     * or rejects after timeout if the game doesn't support save.
+     */
+    requestSave(timeoutMs = 2000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup()
+          reject(new Error('Save not supported'))
+        }, timeoutMs)
+
+        function onState(msg) {
+          if (msg.type === 'stateData') {
+            cleanup()
+            resolve(msg.data)
+          }
+        }
+
+        function cleanup() {
+          clearTimeout(timer)
+          const idx = messageHandlers.indexOf(onState)
+          if (idx !== -1) messageHandlers.splice(idx, 1)
+        }
+
+        messageHandlers.push(onState)
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: 'saveState', data: {} }, '*')
+        } else {
+          cleanup()
+          reject(new Error('No iframe'))
+        }
+      })
+    },
+
+    /**
+     * Send saved state to the game for restoration.
+     */
+    requestRestore(stateData) {
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'restoreState', data: stateData }, '*')
+      }
+    },
+
     destroy() {
       window.removeEventListener('message', handleMessage)
       messageHandlers.length = 0

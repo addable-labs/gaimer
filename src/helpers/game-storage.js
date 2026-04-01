@@ -153,17 +153,20 @@ export async function listGames() {
     }
     const games = [];
     for (const entry of entries) {
-        if (!entry.name || !entry.name.endsWith(".json")) continue;
+        if (!entry.name || !entry.name.endsWith(".json") || entry.name.endsWith(".state.json")) continue;
         try {
             const filePath = await join(dir, entry.name);
             const raw = await readTextFile(filePath);
             const data = JSON.parse(raw);
+            const stateFileName = entry.name.replace(".json", ".state.json");
+            const hasState = entries.some((e) => e.name === stateFileName);
             games.push({
                 id: data.id,
                 title: data.title,
                 description: data.description,
                 controls: data.controls,
                 rules: data.rules,
+                hasSavedState: hasState,
             });
         } catch {
             // Skip corrupt files
@@ -181,8 +184,66 @@ export async function listGames() {
 export async function deleteGame(id) {
     const dir = await getStorageDir();
     const entries = await readDir(dir);
-    const match = entries.find((e) => e.name && e.name.startsWith(id + "-"));
+    const match = entries.find((e) => e.name && e.name.startsWith(id + "-") && !e.name.endsWith(".state.json"));
     if (!match) return;
     const filePath = await join(dir, match.name);
     await remove(filePath);
+    // Also remove state file
+    await deleteGameState(id);
+}
+
+/**
+ * Save game state to a separate file.
+ */
+export async function saveGameState(id, stateData) {
+    const dir = await getStorageDir();
+    const entries = await readDir(dir);
+    const match = entries.find((e) => e.name && e.name.startsWith(id + "-") && e.name.endsWith(".json") && !e.name.endsWith(".state.json"));
+    if (!match) throw new Error(`Game not found: ${id}`);
+    const stateFileName = match.name.replace(".json", ".state.json");
+    const filePath = await join(dir, stateFileName);
+    await writeTextFile(filePath, JSON.stringify(stateData));
+}
+
+/**
+ * Load saved game state, or return null if none exists.
+ */
+export async function loadGameState(id) {
+    const dir = await getStorageDir();
+    let entries;
+    try {
+        entries = await readDir(dir);
+    } catch {
+        return null;
+    }
+    const match = entries.find((e) => e.name && e.name.startsWith(id + "-") && e.name.endsWith(".state.json"));
+    if (!match) return null;
+    try {
+        const filePath = await join(dir, match.name);
+        const raw = await readTextFile(filePath);
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Delete saved game state.
+ */
+export async function deleteGameState(id) {
+    const dir = await getStorageDir();
+    let entries;
+    try {
+        entries = await readDir(dir);
+    } catch {
+        return;
+    }
+    const match = entries.find((e) => e.name && e.name.startsWith(id + "-") && e.name.endsWith(".state.json"));
+    if (!match) return;
+    try {
+        const filePath = await join(dir, match.name);
+        await remove(filePath);
+    } catch {
+        // ignore
+    }
 }

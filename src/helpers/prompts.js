@@ -35,10 +35,40 @@ Your code runs inside a sandboxed iframe with a pre-existing <canvas id="game-ca
   - Map touch regions to controls (e.g. left half = move left)
   - Tap for actions (jump, shoot, etc.)
 
-Example code structure:
-const canvas = document.getElementById('game-canvas');
-const ctx = canvas.getContext('2d');
-// ... game logic using canvas.width, canvas.height
-function gameLoop() { /* update, draw */ requestAnimationFrame(gameLoop); }
-gameLoop();`;
+# Save/Restore state support (REQUIRED)
+
+You MUST implement window.__gaimer_onMessage to handle save and restore:
+
+window.__gaimer_onMessage = function(msg) {
+  switch (msg.type) {
+    case 'saveState':
+      // Collect ALL mutable game state into a plain object
+      var state = { score: score, level: level, playerX: playerX /* ...every game variable */ };
+      __gaimer_sendMessage('stateData', state);
+      break;
+    case 'restoreState':
+      // Restore ALL game state from msg.data
+      score = msg.data.score; level = msg.data.level; playerX = msg.data.playerX;
+      break;
+    case 'pause':
+      // Stop the game loop
+      if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+      break;
+    case 'resume':
+      // Restart the game loop
+      if (!animFrameId) { animFrameId = requestAnimationFrame(gameLoop); }
+      break;
+  }
+};
+
+CRITICAL rules for save/restore:
+- Every let/var game variable (score, positions, velocities, timers, game phase, arrays of entities) MUST be in the saved state
+- The state object MUST be JSON-serializable: no functions, no DOM refs, no circular refs
+- Track your requestAnimationFrame ID in a variable (e.g. animFrameId) so pause/resume works
+- After restoreState, the game loop should continue seamlessly with the restored values
+
+Example game loop pattern:
+var animFrameId = null;
+function gameLoop() { update(); draw(); animFrameId = requestAnimationFrame(gameLoop); }
+animFrameId = requestAnimationFrame(gameLoop);`;
 };
