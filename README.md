@@ -1,54 +1,96 @@
-# Tauri + Vue 3
+# Gaimer
 
-This template should help get you started developing with Tauri + Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+AI-powered game generator. Describe a game idea in plain text and get a playable HTML5 game in seconds.
 
-## Recommended IDE Setup
+Built with [Tauri 2](https://tauri.app/) + [Vue 3](https://vuejs.org/) + [Quasar](https://quasar.dev/). Runs on macOS, Windows, Linux, and iOS.
 
-- [VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Features
 
+- **AI game generation** — Describe a game, get playable JavaScript running in a sandboxed canvas
+- **Multiple AI providers** — OpenAI (API key) or Anthropic Claude Code (subscription-based, no API key needed)
+- **Model selection** — Choose which model to use per provider
+- **Save/restore game state** — Games implement a save contract; save progress and restore on reload
+- **iCloud sync** — Games stored as JSON files in iCloud Drive for cross-device access
+- **Touch + keyboard** — Generated games support both input methods
 
-## Example prompts
+## Getting Started
 
-Create a simple pong game with two dark orange paddles and a dark orange ball. Before starting the game, diaplay a welcome message with a brief game description for 10 seconds, also showing a description of what keys to press to play the game.  At the bottom of the screen, display what controls to use to play the game, and also display how many times the player died. The game ends when Esc-key is pressed. The game is restarted when r-key is pressed.
+### Prerequisites
 
-Create a simple tetris game. Before starting the game, diaplay a welcome message with a brief game description for 5 seconds, also showing a description of what keys to press to play the game.  At the bottom of the screen, display what controls to use to play the game, and also display the score the player has, how many lives the player has left, etc. The game ends when Esc-key is pressed. The game is restarted when R-key is pressed.
+- [Node.js](https://nodejs.org/) 20+
+- [Rust](https://rustup.rs/) stable
+- [Yarn](https://yarnpkg.com/) 1.x
 
-Create a simple tetris game of falling dark orange blocks that need to be placed in a row to clear a line. Before starting the game, diaplay a welcome message with a brief game description for 5 seconds, also showing a description of what keys to press to play the game.  At the bottom of the screen, display what controls to use to play the game, and also display the score the player has, how many lives the player has left, etc. The game ends when Esc-key is pressed. The game is restarted when R-key is pressed.
+### Install
 
-Create a simple tetris game of falling dark orange blocks that need to be placed in a row to clear a line.
-Use transparent background. At the bottom of the screen, display the score the player has, how many lives the player has left, etc. The game ends when Q-key is pressed. The game is paused when the P-key is pressed. The game is restarted when R-key is pressed.
+```bash
+git clone https://github.com/PeterBlenessy/gaimer.git
+cd gaimer
+yarn install
+```
 
-Create a minesweeper game, with that Windows 3.1 look and feel.
-The game is going to be played on a mobile phone, so make sure that the canvas fits in the current viewport.
-The game is paused when the P-key is pressed. The game is restarted when R-key is pressed. The game ends when Q-key is pressed.
+### Development
 
-# Configuring iOS support
+```bash
+yarn tauri dev
+```
 
-    ```bash
-    # Check ruby version. Must be >2.6.0
-    ruby -v
+### Build
 
-    (brew install ruby) - did not work as expected, got error that cocoapod was not installed
-    brew install cocoapods
+```bash
+# macOS desktop
+yarn tauri build
 
-    # Add ruby to path. Force brew ruby to be first in path, overriding system ruby
-    brew link --overwrite ruby --force
+# iOS simulator
+yarn tauri ios init
+yarn tauri ios build --target aarch64-sim
+```
 
-    # Install cocoapods
-    sudo gem install cocoapods
+### Tests
 
-    # Upgrade RubyGems
-    sudo gem update --system 3.5.20
+```bash
+yarn test          # all unit tests
+yarn test:coverage # with coverage report
+```
 
+## AI Providers
 
-    yarn tauri ios init
-    yarn tauri ios dev
+### OpenAI
+Requires an API key. Set it in Settings after launching the app.
 
-    # Got error:
-    # xcodebuild: error: Found no destinations for the scheme 'gaimer_iOS' and action build
-    # 1.  In Xcode, from the menu bar, choose Xcode > Settings….
-    # 2.  Go to the Platforms tab.
-    # 3a. If you see iOS v17.4, install it.
-    # 3b. Otherwise, click the plus symbol (+) in the lower left corner, and then select iOS to view a list of its available versions.
-    # 4.  Select iOS v17.4 and click Download & Install.
-    ```
+### Anthropic Claude Code
+Uses your existing Claude Pro/Max subscription via the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). No API key needed.
+
+```bash
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# Authenticate
+claude auth login
+```
+
+Then select "Claude" in the app's Settings.
+
+## Game Storage
+
+Games are stored as JSON files in `~/Library/Mobile Documents/com~apple~CloudDocs/Gaimer/` (iCloud Drive on macOS). Each game is a separate file that syncs across devices.
+
+Existing games from IndexedDB are automatically migrated on first launch.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop runtime | Tauri 2 (Rust) |
+| Frontend | Vue 3 + Quasar |
+| Build tool | Vite |
+| State management | Pinia |
+| Game sandbox | iframe with postMessage |
+| Credential storage | Tauri Stronghold (encrypted) |
+| Game storage | Filesystem (iCloud Drive) |
+| Testing | Vitest + Playwright |
+| CI/CD | GitHub Actions |
+
+## License
+
+[MIT](LICENSE)
