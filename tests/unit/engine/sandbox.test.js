@@ -1,9 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createSandbox } from '../../../src/engine/sandbox.js'
 
+// Runs the game page's harness, its first script, with a stand-in window and
+// parent window, and returns them
+function runHarness(page) {
+  const win = new EventTarget()
+  const parent = { postMessage: vi.fn() }
+  const harness = page.querySelector('script').textContent
+  new Function('window', 'document', 'parent', harness)(win, page, parent)
+  return { win, parent }
+}
+
 describe('createSandbox', () => {
   let container
   let sandbox
+
+  // Loads the game and returns the page it writes into the iframe, parsed
+  function loadPage(gameCode) {
+    sandbox = createSandbox(container)
+    sandbox.loadGame(gameCode)
+    const iframe = container.querySelector('iframe')
+    return new DOMParser().parseFromString(iframe.srcdoc, 'text/html')
+  }
 
   beforeEach(() => {
     container = document.createElement('div')
@@ -108,5 +126,59 @@ describe('createSandbox', () => {
     const iframe = container.querySelector('iframe')
     expect(iframe.srcdoc).toContain('// game 2')
     expect(iframe.srcdoc).not.toContain('// game 1')
+  })
+
+  it('loadGame() puts the game code in a script of its own, after the harness', () => {
+    const page = loadPage('let x = ;')
+    const scripts = page.querySelectorAll('script')
+    expect(scripts).toHaveLength(2)
+    // The game's syntax error leaves the harness able to run and report it
+    expect(scripts[0].textContent).not.toContain('let x = ;')
+    expect(() => new Function(scripts[0].textContent)).not.toThrow()
+    expect(scripts[1].textContent).toContain('let x = ;')
+  })
+
+  it('the game page reports errors to the parent', () => {
+    const { win, parent } = runHarness(loadPage('// game'))
+    const error = new Error('boom')
+    win.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: boom' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'boom', stack: error.stack } },
+      '*'
+    )
+    // WebKit gives the sandboxed page no error object, only a message
+    win.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'Script error.', stack: null } },
+      '*'
+    )
+  })
+
+  it('the game page reports unhandled promise rejections to the parent', () => {
+    const { win, parent } = runHarness(loadPage('// game'))
+    const error = new Error('no level data')
+    win.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'no level data', stack: error.stack } },
+      '*'
+    )
+    win.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: 'timeout' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'timeout', stack: undefined } },
+      '*'
+    )
+  })
+
+  it('loadGame() escapes </script in the game code, so it cannot end the script early', () => {
+    const page = loadPage('window.tags = ["</script><p>", "</SCRIPT >"]')
+    const scripts = page.querySelectorAll('script')
+    expect(scripts).toHaveLength(2)
+    expect(page.querySelector('p')).toBeNull()
+    // The escaped code means the same as the game's
+    const win = {}
+    const sendMessage = vi.fn()
+    new Function('window', '__gaimer_sendMessage', scripts[1].textContent)(win, sendMessage)
+    expect(win.tags).toEqual(['</script><p>', '</SCRIPT >'])
+    expect(sendMessage).toHaveBeenCalledWith('ready', {})
   })
 })

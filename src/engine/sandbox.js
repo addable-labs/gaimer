@@ -73,13 +73,34 @@ function __gaimer_sendMessage(type, data) {
   parent.postMessage({ type: type, data: data }, '*');
 }
 
-// Execute game code in IIFE
+// Report errors to the parent: a syntax error in the game script below,
+// and errors the game throws later (game loop, input handlers, promises).
+// WebKit gives a sandboxed page no details of an error event, only
+// "Script error."
+function __gaimer_reportError(error, fallbackMessage) {
+  __gaimer_sendMessage('error', {
+    message: (error && error.message) || fallbackMessage,
+    stack: error && error.stack
+  });
+}
+window.addEventListener('error', function(event) {
+  __gaimer_reportError(event.error, event.message);
+});
+window.addEventListener('unhandledrejection', function(event) {
+  __gaimer_reportError(event.reason, String(event.reason));
+});
+</script>
+<script>
+// Execute game code in IIFE, in a script of its own: a syntax error stops
+// only this script, and the harness above reports it. The catch keeps the
+// message of an error thrown while the game starts, which WebKit would
+// hide from the error listener.
 (function() {
   try {
-    ${gameCode}
+    ${escapeScriptEnd(gameCode)}
     __gaimer_sendMessage('ready', {});
   } catch (e) {
-    __gaimer_sendMessage('error', { message: e.message, stack: e.stack });
+    __gaimer_reportError(e, String(e));
   }
 })();
 </script>
@@ -154,4 +175,11 @@ function __gaimer_sendMessage(type, data) {
       iframe = null
     }
   }
+}
+
+// "</script" anywhere in the game code, even inside a string, would end its
+// <script> element early. "<\/script" means the same in JavaScript strings,
+// regular expressions and comments.
+function escapeScriptEnd(code) {
+  return code.replace(/<\/(script)/gi, '<\\/$1')
 }
