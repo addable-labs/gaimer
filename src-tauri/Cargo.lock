@@ -1644,8 +1644,6 @@ dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
  "rust-argon2 1.0.0",
- "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-fs",
