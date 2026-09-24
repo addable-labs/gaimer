@@ -8,6 +8,9 @@ import { safeParseGameJSON } from "../helpers/json-utils.js";
  */
 export function createAnthropicProvider() {
     let connected = false;
+    // Numbers the calls of connect() and disconnect(): sign-in checks can
+    // overlap, and only the latest call sets connected
+    let calls = 0;
 
     return {
         id: "anthropic",
@@ -22,18 +25,19 @@ export function createAnthropicProvider() {
         },
 
         async connect() {
+            const call = ++calls;
+            let signedIn = false;
             try {
                 const output = await shellExec(
                     "claude auth status",
                     10000
                 );
                 const trimmed = output.trim();
-                if (
+                signedIn =
                     trimmed.includes('"loggedIn": true') ||
                     trimmed.includes('"loggedIn":true') ||
-                    trimmed.includes("Logged in")
-                ) {
-                    connected = true;
+                    trimmed.includes("Logged in");
+                if (signedIn) {
                     return { success: true };
                 }
                 return {
@@ -48,10 +52,15 @@ export function createAnthropicProvider() {
                         ? 'Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code'
                         : msg,
                 };
+            } finally {
+                // A check that ends after a newer connect() or disconnect()
+                // has started is out of date, and leaves connected alone
+                if (call === calls) connected = signedIn;
             }
         },
 
         async disconnect() {
+            calls++;
             connected = false;
         },
 
