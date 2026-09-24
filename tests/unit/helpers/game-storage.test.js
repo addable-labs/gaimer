@@ -70,6 +70,21 @@ describe("game-storage", () => {
         expect(saved.id).toBe("123");
     });
 
+    it("saveGame keeps the game's id and prompt when the content has its own", async () => {
+        await initStorage();
+        const game = {
+            id: "555",
+            prompt: '"a maze"',
+            content: JSON.stringify({ id: "999", prompt: "other", title: "Maze", code: "// code" }),
+        };
+        await saveGame(game);
+        const key = [...mockFiles.keys()][0];
+        const saved = JSON.parse(mockFiles.get(key));
+        expect(saved.id).toBe("555");
+        expect(saved.prompt).toBe('"a maze"');
+        expect(saved.title).toBe("Maze");
+    });
+
     it("loadGame reads and returns compatible format", async () => {
         await initStorage();
         const game = {

@@ -108,9 +108,9 @@ export async function saveGame(game) {
     const dir = await getStorageDir();
     const parsed = typeof game.content === "string" ? JSON.parse(game.content) : game.content;
     const fileData = {
+        ...parsed,
         id: game.id,
         prompt: game.prompt,
-        ...parsed,
     };
     const fileName = gameFileName(game.id, parsed.title);
     const filePath = await join(dir, fileName);
