@@ -141,6 +141,11 @@ describe('Anthropic Provider', () => {
       return chunks
     }
 
+    // The words of the last command line the provider ran
+    function commandWords() {
+      return shellExecWithInput.mock.lastCall[0].split(' ')
+    }
+
     beforeEach(async () => {
       tempFiles = {}
       withTempFile.mockImplementation(async (prefix, text, fn) => {
@@ -157,10 +162,31 @@ describe('Anthropic Provider', () => {
       await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
 
       expect(shellExecWithInput).toHaveBeenLastCalledWith(
-        `claude -p --model sonnet --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --output-format json`,
+        `claude -p --model sonnet --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
         'A game of pong'
       )
       expect(tempFiles['gaimer-system']).toBe('You write games.')
+    })
+
+    it('starts no MCP servers from the Claude config', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+      await generate()
+
+      // With --strict-mcp-config only the servers passed with --mcp-config
+      // start, and none are passed
+      expect(commandWords()).toContain('--strict-mcp-config')
+      expect(commandWords()).not.toContain('--mcp-config')
+    })
+
+    it('skips CLAUDE.md, hooks, plugins and skills but keeps the sign-in', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+      await generate()
+
+      // --bare would skip them too, but it never reads the Pro/Max sign-in
+      expect(commandWords()).toContain('--safe-mode')
+      expect(commandWords()).not.toContain('--bare')
     })
 
     it('returns the game in the result field', async () => {

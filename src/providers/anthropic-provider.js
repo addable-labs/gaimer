@@ -112,10 +112,14 @@ export function createAnthropicProvider() {
             // Run Claude as a plain completion: Gaimer's system prompt
             // replaces Claude Code's, the built-in tools are off, and no
             // session is saved to disk. Only the user's description goes on
-            // stdin.
+            // stdin. The user's own Claude Code setup stays out of it:
+            // --safe-mode skips their CLAUDE.md, hooks, plugins and skills
+            // but still reads the subscription sign-in (--bare would not),
+            // and --strict-mcp-config with no --mcp-config starts no MCP
+            // servers.
             const output = await withTempFile("gaimer-system", systemMessage, (systemFile) =>
                 shellExecWithInput(
-                    `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --output-format json`,
+                    `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
                     prompt
                 )
             );
