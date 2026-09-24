@@ -60,7 +60,7 @@ describe('main window capability', () => {
   })
 
   it('grants only the shell and opener commands the app calls', () => {
-    expect(pluginCommands.shell.filter((command) => grants('shell', command))).toEqual(['spawn'])
+    expect(pluginCommands.shell.filter((command) => grants('shell', command))).toEqual(['kill', 'spawn'])
     expect(pluginCommands.opener.filter((command) => grants('opener', command))).toEqual(['open_url'])
   })
 

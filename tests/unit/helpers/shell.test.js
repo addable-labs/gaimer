@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { Command } from '@tauri-apps/plugin-shell'
-import { shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
+import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
+import * as plugin from '../../plugin-shell.js'
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
   Command: { create: vi.fn() },
@@ -40,6 +42,20 @@ describe('shell', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  describe('shellExec', () => {
+    it('kills the process when the command times out', async () => {
+      // A sign-in check that never ends, run as the shell plugin would
+      // under the app's capability
+      Command.create.mockImplementationOnce(plugin.Command.create)
+      plugin.shell.exits = () => false
+
+      await expect(shellExec('claude auth status', 10)).rejects.toThrow('Command timed out')
+      await flushPromises()
+
+      expect(plugin.shell.killed).toEqual([{ cmd: '/bin/zsh', args: ['-l', '-c', 'claude auth status'] }])
+    })
   })
 
   describe('withTempFile', () => {

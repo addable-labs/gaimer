@@ -12,6 +12,11 @@ export async function shellExec(command, timeoutMs = 180000) {
 
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
+            // Stop the process as well: left running, a Claude call goes on
+            // using the user's subscription
+            spawned.then((child) => child.kill()).catch(() => {
+                /* the command has failed already */
+            });
             reject(new Error("Command timed out"));
         }, timeoutMs);
 
@@ -41,7 +46,8 @@ export async function shellExec(command, timeoutMs = 180000) {
             stderr += line;
         });
 
-        cmd.spawn().catch((err) => {
+        const spawned = cmd.spawn();
+        spawned.catch((err) => {
             clearTimeout(timer);
             reject(err);
         });
