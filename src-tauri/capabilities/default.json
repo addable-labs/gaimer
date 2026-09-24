@@ -41,18 +41,6 @@
                 "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Gaimer/**"
             ]
         },
-        "http:default",
-        "stronghold:default",
-        {
-            "identifier": "http:default",
-            "allow": [
-                {
-                    "url": "https://api.openai.com/*"
-                },
-                {
-                    "url": "https://api.anthropic.com/*"
-                }
-            ]
-        }
+        "stronghold:default"
     ]
 }

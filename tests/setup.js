@@ -12,11 +12,6 @@ vi.mock('@tauri-apps/api/event', () => ({
   emit: vi.fn(),
 }))
 
-// Mock @tauri-apps/plugin-http
-vi.mock('@tauri-apps/plugin-http', () => ({
-  fetch: vi.fn(),
-}))
-
 // Mock @tauri-apps/plugin-shell
 vi.mock('@tauri-apps/plugin-shell', () => ({
   open: vi.fn(),
