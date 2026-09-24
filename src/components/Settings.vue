@@ -9,7 +9,7 @@ const props = defineProps({
 });
 
 const persistedStore = usePersistedStore();
-const { apiKey, selectedProvider, selectedModel } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, selectedModels } = storeToRefs(persistedStore);
 
 const userInput = ref(apiKey.value);
 const providerChoice = ref(selectedProvider.value || "openai");
@@ -136,7 +136,7 @@ watch(model, (visible) => {
                 <q-select
                     dense
                     filled
-                    v-model="selectedModel"
+                    v-model="selectedModels.openai"
                     :options="availableModels"
                     :loading="loadingModels"
                     label="Model"
@@ -155,7 +155,7 @@ watch(model, (visible) => {
                 <q-select
                     dense
                     filled
-                    v-model="selectedModel"
+                    v-model="selectedModels.anthropic"
                     :options="availableModels"
                     :loading="loadingModels"
                     label="Model"

@@ -19,7 +19,7 @@ const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const providerStore = useProviderStore();
 const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
-const { apiKey, selectedProvider, selectedModel } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, selectedModels } = storeToRefs(persistedStore);
 
 // Set up provider registry with both providers
 const registry = createProviderRegistry();
@@ -28,7 +28,9 @@ const anthropicProvider = createAnthropicProvider();
 registry.register(openaiProvider);
 registry.register(anthropicProvider);
 
-// Connect the selected provider
+// Connect the selected provider. A provider that fails to connect is no
+// longer active, so generating asks the user to open Settings. (OpenAI's
+// connect fails only without an API key, which is checked first.)
 async function connectActiveProvider() {
     const id = selectedProvider.value;
 
@@ -48,16 +50,24 @@ async function connectActiveProvider() {
         } else {
             console.warn("Anthropic connect:", result.error);
             providerStore.removeConnection("anthropic");
+            registry.deactivate("anthropic");
         }
     }
+}
+
+// Disconnect a provider. It is then no longer active, so until another
+// provider connects, generating asks the user to open Settings.
+async function disconnectProvider(provider) {
+    await provider.disconnect();
+    providerStore.removeConnection(provider.id);
+    registry.deactivate(provider.id);
 }
 
 // Re-connect when API key changes (OpenAI)
 watch(apiKey, async () => {
     if (selectedProvider.value !== "openai") return;
     if (openaiProvider.isConnected()) {
-        await openaiProvider.disconnect();
-        providerStore.removeConnection("openai");
+        await disconnectProvider(openaiProvider);
     }
     await connectActiveProvider();
 });
@@ -67,8 +77,7 @@ async function onProviderChanged(id) {
     // Disconnect previous provider if switching away
     const prev = registry.getActive();
     if (prev && prev.id !== id) {
-        await prev.disconnect();
-        providerStore.removeConnection(prev.id);
+        await disconnectProvider(prev);
     }
 
     // Always run the full connect flow to ensure both the provider object
@@ -113,7 +122,7 @@ const generateGame = async (prompt) => {
         const defaultModel = isAnthropic ? "claude-sonnet-4-6" : "gpt-4o";
         const generator = provider.generateGame(prompt, {
             systemMessage: getSystemMessage(),
-            model: selectedModel.value || defaultModel,
+            model: selectedModels.value[provider.id] || defaultModel,
             maxTokens: 16384,
             temperature: 0.2,
         });

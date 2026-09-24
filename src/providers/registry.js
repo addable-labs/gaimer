@@ -43,6 +43,12 @@ export function createProviderRegistry() {
       activeId = id
     },
 
+    deactivate(id) {
+      if (activeId === id) {
+        activeId = null
+      }
+    },
+
     getActive() {
       if (!activeId) return null
       return providers.get(activeId) || null

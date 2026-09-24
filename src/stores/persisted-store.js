@@ -9,9 +9,10 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     const apiKey = ref("");
     const apiKeyReady = ref(false);
 
-    // Selected AI provider and model
+    // Selected AI provider, and the model chosen for each provider
+    // ("" means the provider's default)
     const selectedProvider = ref(loadStateFromLocalStorage("selectedProvider") || "openai");
-    const selectedModel = ref(loadStateFromLocalStorage("selectedModel") || "");
+    const selectedModels = ref(loadSelectedModels());
 
     function saveStateToLocalStorage(key, value) {
         localStorage.setItem(key, JSON.stringify(value));
@@ -20,6 +21,23 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     function loadStateFromLocalStorage(key) {
         const value = localStorage.getItem(key);
         return value ? JSON.parse(value) : null;
+    }
+
+    function loadSelectedModels() {
+        const models = { openai: "", anthropic: "" };
+        const saved = loadStateFromLocalStorage("selectedModels");
+        if (saved) return { ...models, ...saved };
+
+        // One-time migration: earlier versions kept a single model for both
+        // providers. Give it to the provider it belongs to: Claude model
+        // names start with "claude", and every other one was OpenAI's.
+        const legacy = loadStateFromLocalStorage("selectedModel");
+        if (legacy) {
+            models[legacy.startsWith("claude") ? "anthropic" : "openai"] = legacy;
+        }
+        saveStateToLocalStorage("selectedModels", models);
+        localStorage.removeItem("selectedModel");
+        return models;
     }
 
     // Load API key from credential store (and migrate from localStorage if needed)
@@ -59,15 +77,15 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         saveStateToLocalStorage("selectedProvider", newValue);
     });
 
-    watch(selectedModel, (newValue) => {
-        saveStateToLocalStorage("selectedModel", newValue);
-    });
+    watch(selectedModels, (newValue) => {
+        saveStateToLocalStorage("selectedModels", newValue);
+    }, { deep: true });
 
     return {
         apiKey,
         apiKeyReady,
         selectedProvider,
-        selectedModel,
+        selectedModels,
         init,
     };
 });

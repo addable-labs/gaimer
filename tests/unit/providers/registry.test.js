@@ -105,6 +105,26 @@ describe('ProviderRegistry', () => {
       expect(() => registry.setActive('nonexistent')).toThrow('Provider "nonexistent" is not registered')
     })
   })
+
+  describe('deactivate', () => {
+    it('leaves no active provider when the given one is active', () => {
+      const provider = createMockProvider('anthropic')
+      registry.register(provider)
+      registry.setActive('anthropic')
+      registry.deactivate('anthropic')
+      expect(registry.getActive()).toBeNull()
+      expect(registry.get('anthropic')).toBe(provider)
+    })
+
+    it('keeps another provider active', () => {
+      const openai = createMockProvider('openai')
+      registry.register(openai)
+      registry.register(createMockProvider('anthropic'))
+      registry.setActive('openai')
+      registry.deactivate('anthropic')
+      expect(registry.getActive()).toBe(openai)
+    })
+  })
 })
 
 describe('AIProvider interface', () => {
