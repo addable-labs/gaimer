@@ -3,11 +3,16 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { Quasar, QBtn } from 'quasar'
 import ConnectClaude from '../../../src/components/ConnectClaude.vue'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { shellExec } from '../../../src/helpers/shell.js'
 import { shell } from '../../plugin-shell.js'
 
 vi.mock('../../../src/helpers/shell.js', () => ({
   shellExec: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(),
 }))
 
 // Runs commands as the shell plugin would under the app's capability
@@ -95,6 +100,17 @@ describe('ConnectClaude', () => {
       await flushPromises()
 
       expect(shell.ran).toEqual([{ cmd: 'open', args: ['-a', 'Terminal'] }])
+    })
+  })
+
+  describe('pricing link', () => {
+    it('opens the Claude pricing page in the browser', async () => {
+      claudeCli({ installed: false })
+      const wrapper = await openPanel()
+
+      await wrapper.findAll('a').find((link) => link.text() === 'Claude Pro or Max').trigger('click')
+
+      expect(openUrl).toHaveBeenCalledWith('https://claude.ai/pricing')
     })
   })
 })

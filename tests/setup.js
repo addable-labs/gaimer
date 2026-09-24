@@ -21,7 +21,6 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 // Mock @tauri-apps/plugin-shell
 vi.mock('@tauri-apps/plugin-shell', () => ({
-  open: vi.fn(),
   Command: vi.fn(),
 }))
 

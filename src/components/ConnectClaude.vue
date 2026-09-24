@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { Command } from "@tauri-apps/plugin-shell";
-import { open as shellOpen } from "@tauri-apps/plugin-shell";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { shellExec } from "../helpers/shell.js";
 import { useProviderStore } from "../stores/provider-store.js";
 
@@ -138,7 +138,7 @@ onMounted(() => {
                     href="#"
                     class="text-grey-4"
                     style="text-decoration: underline"
-                    @click.prevent="shellOpen('https://claude.ai/pricing')"
+                    @click.prevent="openUrl('https://claude.ai/pricing')"
                 >Claude Pro or Max</a>
                 subscription.
             </div>

@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import { createAnthropicProvider } from '../../src/providers/anthropic-provider.js'
-import { grants, shellRuns } from '../capability.js'
+import { grants, openerOpens, pluginCommands, shellRuns } from '../capability.js'
 import { shell } from '../plugin-shell.js'
 
 vi.mock('@tauri-apps/plugin-shell', () => import('../plugin-shell.js'))
@@ -59,10 +59,9 @@ describe('main window capability', () => {
     shell.output = claudeCli
   })
 
-  it('grants only the shell plugin commands the app calls', () => {
-    const commands = ['execute', 'kill', 'open', 'spawn', 'stdin_write']
-
-    expect(commands.filter((command) => grants('shell', command))).toEqual(['open', 'spawn'])
+  it('grants only the shell and opener commands the app calls', () => {
+    expect(pluginCommands.shell.filter((command) => grants('shell', command))).toEqual(['spawn'])
+    expect(pluginCommands.opener.filter((command) => grants('opener', command))).toEqual(['open_url'])
   })
 
   describe('shell-cmd', () => {
@@ -145,6 +144,18 @@ describe('main window capability', () => {
       // The plugin passes the fixed arguments in place of the caller's
       for (const args of [['https://example.com'], ['-a', 'Calculator'], ['-a', 'Terminal', '/tmp/x.command'], []]) {
         expect(shellRuns('spawn', 'open-app', args), args.join(' ')).toEqual({ cmd: 'open', args: ['-a', 'Terminal'] })
+      }
+    })
+  })
+
+  describe('opener', () => {
+    it('opens the Claude pricing page', () => {
+      expect(openerOpens('https://claude.ai/pricing')).toBe(true)
+    })
+
+    it('opens no other kind of link', () => {
+      for (const url of ['http://claude.ai/pricing', 'file:///Applications/Calculator.app', '/Applications/Calculator.app', 'mailto:someone@example.com']) {
+        expect(openerOpens(url), url).toBe(false)
       }
     })
   })

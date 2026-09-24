@@ -1,8 +1,14 @@
-// How Tauri 2.11 and tauri-plugin-shell 2.3 read the main window's
-// capability, src-tauri/capabilities/default.json, so tests can check what a
-// script in the window may run. It models what that file uses and throws on
-// permissions it does not model.
+// How Tauri 2.11, tauri-plugin-shell 2.3 and tauri-plugin-opener 2.5 read
+// the main window's capability, src-tauri/capabilities/default.json, so tests
+// can check what a script in the window may run or open. It models what that
+// file uses and throws on permissions it does not model.
 import capability from '../src-tauri/capabilities/default.json'
+
+// The commands of each plugin
+export const pluginCommands = {
+  shell: ['execute', 'kill', 'open', 'spawn', 'stdin_write'],
+  opener: ['open_path', 'open_url', 'reveal_item_in_dir'],
+}
 
 // The scope entries the capability gives a command of a plugin, such as
 // spawn of the shell plugin, or null when it does not grant the command.
@@ -13,10 +19,11 @@ function commandScope(plugin, command) {
   for (const permission of capability.permissions) {
     const { identifier, ...scope } = typeof permission === 'string' ? { identifier: permission } : permission
     if (!identifier.startsWith(`${plugin}:`)) continue
-    if (!identifier.startsWith(`${plugin}:allow-`) || scope.deny) {
+    const granted = identifier.match(/:allow-(.+)$/)?.[1].replaceAll('-', '_')
+    if (!pluginCommands[plugin].includes(granted) || scope.deny) {
       throw new Error(`${identifier} is not modelled`)
     }
-    if (identifier === `${plugin}:allow-${command.replaceAll('_', '-')}`) {
+    if (granted === command) {
       entries = [...(entries ?? []), ...(scope.allow ?? [])]
     }
   }
@@ -58,4 +65,16 @@ export function shellRuns(command, program, args) {
     run.push(args[i])
   }
   return { cmd: entry.cmd, args: run }
+}
+
+// Whether tauri-plugin-opener opens url for openUrl(url). An entry's url is a
+// glob that must match the whole url; * matches any text, / included.
+export function openerOpens(url) {
+  return (commandScope('opener', 'open_url') ?? []).some((entry) => {
+    if (!entry.url || entry.app !== undefined || /[?[\]]/.test(entry.url)) {
+      throw new Error(`${JSON.stringify(entry)} is not modelled`)
+    }
+    const glob = entry.url.split('*').map((text) => text.replace(/[.+^${}()|\\]/g, '\\$&'))
+    return new RegExp(`^${glob.join('[\\s\\S]*')}$`).test(url)
+  })
 }
