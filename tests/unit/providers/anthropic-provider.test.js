@@ -225,6 +225,27 @@ describe('Anthropic Provider', () => {
       await expect(generate()).rejects.toThrow('Claude CLI error: Not logged in · Please run /login')
     })
 
+    it('fails with the message of a result that is an error when the Claude CLI exits with code 1', async () => {
+      shellExecWithInput.mockRejectedValueOnce(Object.assign(new Error('Exit code 1'), {
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          result: 'Not logged in · Please run /login',
+        }) + '\n',
+      }))
+
+      await expect(generate()).rejects.toThrow('Claude CLI error: Not logged in · Please run /login')
+    })
+
+    it('fails with the shell\'s error when the Claude CLI exits without printing a result', async () => {
+      shellExecWithInput.mockRejectedValueOnce(Object.assign(new Error('zsh:1: command not found: claude'), {
+        stdout: 'Welcome back!\n',
+      }))
+
+      await expect(generate()).rejects.toThrow('zsh:1: command not found: claude')
+    })
+
     it('fails when the Claude CLI prints no result', async () => {
       shellExecWithInput.mockResolvedValueOnce('Welcome back!\n')
 

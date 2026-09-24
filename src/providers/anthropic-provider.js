@@ -2,12 +2,13 @@ import { shellExec, shellExecWithInput, withTempFile } from "../helpers/shell.js
 import { safeParseGameJSON } from "../helpers/json-utils.js";
 
 /**
- * Returns the answer from what `claude -p --output-format json` printed: one
- * line of JSON holding the result message, or every message of the run when
- * the user's Claude settings turn on verbose output. The login shell can print
- * lines of its own around it.
+ * Returns the result message from what `claude -p --output-format json`
+ * printed, or undefined when there is none. The CLI prints one line of JSON
+ * holding it, or every message of the run when the user's Claude settings
+ * turn on verbose output. The login shell can print lines of its own around
+ * it.
  */
-function cliResult(output) {
+function resultMessage(output) {
     for (const line of output.split("\n").reverse()) {
         let parsed;
         try {
@@ -17,14 +18,22 @@ function cliResult(output) {
         }
         const messages = Array.isArray(parsed) ? parsed : [parsed];
         const result = messages.filter((message) => message?.type === "result").pop();
-        if (!result) continue;
-        if (result.is_error) {
-            const reason = result.result || result.errors?.join("\n") || result.subtype;
-            throw new Error(`Claude CLI error: ${reason}`);
-        }
-        return result.result;
+        if (result) return result;
     }
-    throw new Error("Claude CLI printed no result");
+    return undefined;
+}
+
+/**
+ * Returns the answer from what `claude -p --output-format json` printed.
+ */
+function cliResult(output) {
+    const result = resultMessage(output);
+    if (!result) throw new Error("Claude CLI printed no result");
+    if (result.is_error) {
+        const reason = result.result || result.errors?.join("\n") || result.subtype;
+        throw new Error(`Claude CLI error: ${reason}`);
+    }
+    return result.result;
 }
 
 /**
@@ -122,7 +131,13 @@ export function createAnthropicProvider() {
                     `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
                     prompt
                 )
-            );
+            ).catch((err) => {
+                // The Claude CLI exits with code 1 when the result is an
+                // error, and prints that result as usual: its message says
+                // more than the exit code
+                if (resultMessage(err?.stdout ?? "")?.is_error) return err.stdout;
+                throw err;
+            });
 
             const result = safeParseGameJSON(cliResult(output));
             if (!result.ok) {

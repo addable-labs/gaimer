@@ -56,6 +56,15 @@ describe('shell', () => {
 
       expect(plugin.shell.killed).toEqual([{ cmd: '/bin/zsh', args: ['-l', '-c', 'claude auth status'] }])
     })
+
+    it('passes what the command printed along when it fails', async () => {
+      Command.create.mockImplementationOnce(() => fakeCommand('{"type":"result","is_error":true}\n', 1))
+
+      await expect(shellExec('claude -p --output-format json')).rejects.toMatchObject({
+        message: 'Exit code 1',
+        stdout: '{"type":"result","is_error":true}\n',
+      })
+    })
   })
 
   describe('withTempFile', () => {

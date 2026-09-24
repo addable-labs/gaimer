@@ -4,6 +4,9 @@ import { Command } from "@tauri-apps/plugin-shell";
  * Run a command through a login shell to ensure the user's full PATH is available.
  * This is necessary because macOS apps launched from Finder/Dock don't inherit
  * the user's shell PATH (e.g. ~/.local/bin won't be found).
+ * Resolves to what the command printed on stdout. When the command exits with
+ * an error code, it rejects with stderr (or the code) as the message, and
+ * with what the command printed on stdout as error.stdout.
  */
 export async function shellExec(command, timeoutMs = 180000) {
     const cmd = Command.create("shell-cmd", ["-l", "-c", command]);
@@ -25,9 +28,11 @@ export async function shellExec(command, timeoutMs = 180000) {
             if (data.code === 0) {
                 resolve(stdout);
             } else {
+                // The Claude CLI prints why a call failed on stdout
                 reject(
-                    new Error(
-                        stderr.trim() || `Exit code ${data.code}`
+                    Object.assign(
+                        new Error(stderr.trim() || `Exit code ${data.code}`),
+                        { stdout }
                     )
                 );
             }
