@@ -40,6 +40,7 @@ import {
     loadGame,
     listGames,
     deleteGame,
+    saveGameState,
 } from "../../../src/helpers/game-storage.js";
 
 describe("game-storage", () => {
@@ -80,6 +81,24 @@ describe("game-storage", () => {
         const loaded = await loadGame("456");
         expect(loaded.id).toBe("456");
         expect(loaded.content).toContain("Loaded Game");
+    });
+
+    it("loadGame skips the saved state when readDir lists it first", async () => {
+        await initStorage();
+        await saveGame({
+            id: "321",
+            prompt: '"test"',
+            content: JSON.stringify({ title: "Saved Game", code: "// code" }),
+        });
+        await saveGameState("321", { score: 42 });
+        // The filesystem does not sort, so the state file can come first
+        const { readDir } = await import("@tauri-apps/plugin-fs");
+        readDir.mockResolvedValueOnce([
+            { name: "321-saved-game.state.json" },
+            { name: "321-saved-game.json" },
+        ]);
+        const loaded = await loadGame("321");
+        expect(JSON.parse(loaded.content).title).toBe("Saved Game");
     });
 
     it("listGames returns metadata", async () => {

@@ -125,7 +125,7 @@ export async function saveGame(game) {
 export async function loadGame(id) {
     const dir = await getStorageDir();
     const entries = await readDir(dir);
-    const match = entries.find((e) => e.name && e.name.startsWith(id + "-"));
+    const match = entries.find((e) => e.name && e.name.startsWith(id + "-") && e.name.endsWith(".json") && !e.name.endsWith(".state.json"));
     if (!match) throw new Error(`Game not found: ${id}`);
     const filePath = await join(dir, match.name);
     const raw = await readTextFile(filePath);
