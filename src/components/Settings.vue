@@ -16,7 +16,7 @@ const providerChoice = ref(selectedProvider.value || "openai");
 const availableModels = ref([]);
 const loadingModels = ref(false);
 
-const emit = defineEmits(["providerChanged"]);
+const emit = defineEmits(["providerChanged", "providerDisconnected"]);
 
 watch(
     () => apiKey.value,
@@ -61,7 +61,7 @@ function onClaudeConnected() {
 }
 
 function onClaudeDisconnected() {
-    emit("providerChanged", "anthropic");
+    emit("providerDisconnected", "anthropic");
     availableModels.value = [];
 }
 

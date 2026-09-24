@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
+import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
 
@@ -55,11 +56,11 @@ function fakeProvider(id) {
   return provider
 }
 
-async function startApp() {
+async function startApp(stubs = { Settings: true }) {
   const wrapper = mount(App, {
     global: {
       plugins: [Quasar],
-      stubs: { Settings: true, GameList: true, GameContainer: true, UserInput: true },
+      stubs: { GameList: true, GameContainer: true, UserInput: true, ...stubs },
     },
   })
   await flushPromises()
@@ -80,6 +81,13 @@ async function generate() {
 
 function modelSentTo(provider) {
   return provider.generateGame.mock.lastCall[1].model
+}
+
+// Open Settings from the drawer and return its Claude panel (Claude must be selected)
+async function openClaudePanel(wrapper) {
+  await wrapper.find('[aria-label="Settings"]').trigger('click')
+  await flushPromises()
+  return wrapper.findComponent(ConnectClaude)
 }
 
 enableAutoUnmount(afterEach)
@@ -158,6 +166,21 @@ describe('App', () => {
 
       expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
       expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+    })
+
+    it('has none after the user disconnects Claude in Settings', async () => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      const wrapper = await startApp({ ConnectClaude: true })
+
+      // The user presses Disconnect in the Claude panel
+      const panel = await openClaudePanel(wrapper)
+      panel.vm.$emit('disconnected')
+      await flushPromises()
+      await generate()
+
+      expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
+      expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+      expect(providers.anthropic.disconnect).toHaveBeenCalledOnce()
     })
 
     it('stays OpenAI when Claude fails to connect after the user switched back', async () => {

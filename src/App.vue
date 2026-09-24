@@ -85,6 +85,11 @@ async function onProviderChanged(id) {
     await connectActiveProvider();
 }
 
+// Handle the Disconnect button in Settings
+async function onProviderDisconnected(id) {
+    await disconnectProvider(registry.get(id));
+}
+
 
 const drawer = ref(false);
 const showSettings = ref(false);
@@ -295,7 +300,7 @@ watch(game, (newVal) => {
 
         <q-page-container>
             <q-page id="page" class="game-page">
-                <Settings v-model="showSettings" :registry="registry" @providerChanged="onProviderChanged" />
+                <Settings v-model="showSettings" :registry="registry" @providerChanged="onProviderChanged" @providerDisconnected="onProviderDisconnected" />
 
                 <div v-if="state !== 'done'" class="status-container">
                     <div class="text-center q-pa-md">
