@@ -53,6 +53,16 @@ async function checkAuth() {
     }
 }
 
+// Copy a command to the clipboard. The Copy buttons call this because a
+// template cannot use globals such as navigator.
+async function copy(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        // Ignore clipboard errors
+    }
+}
+
 async function startLogin() {
     phase.value = "authenticating";
 
@@ -64,11 +74,7 @@ async function startLogin() {
     }
 
     // Copy the command to clipboard
-    try {
-        await navigator.clipboard.writeText("claude auth login");
-    } catch {
-        // Ignore clipboard errors
-    }
+    await copy("claude auth login");
 }
 
 async function retryAuth() {
@@ -118,7 +124,7 @@ onMounted(() => {
                         icon="mdi-content-copy"
                         size="sm"
                         color="grey-5"
-                        @click="navigator.clipboard.writeText('npm install -g @anthropic-ai/claude-code')"
+                        @click="copy('npm install -g @anthropic-ai/claude-code')"
                     >
                         <q-tooltip>Copy</q-tooltip>
                     </q-btn>
@@ -180,7 +186,7 @@ onMounted(() => {
                         icon="mdi-content-copy"
                         size="sm"
                         color="grey-5"
-                        @click="navigator.clipboard.writeText('claude auth login')"
+                        @click="copy('claude auth login')"
                     >
                         <q-tooltip>Copy</q-tooltip>
                     </q-btn>
@@ -208,7 +214,7 @@ onMounted(() => {
                         icon="mdi-content-copy"
                         size="sm"
                         color="grey-5"
-                        @click="navigator.clipboard.writeText('claude auth login')"
+                        @click="copy('claude auth login')"
                     >
                         <q-tooltip>Copy</q-tooltip>
                     </q-btn>
