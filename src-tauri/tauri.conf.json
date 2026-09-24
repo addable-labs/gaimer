@@ -1,7 +1,7 @@
 {
     "productName": "gaimer",
     "version": "0.1.0",
-    "identifier": "com.gaimer.desktop",
+    "identifier": "se.addablelabs.gaimer",
     "build": {
         "beforeDevCommand": "yarn dev",
         "devUrl": "http://localhost:1430",

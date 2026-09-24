@@ -32,7 +32,7 @@ Gaimer runs in the iOS simulator (confirmed in commit `9a62cf1`) but is far from
 - [ ] `yarn tauri ios init` successfully generates Xcode project in `src-tauri/gen/apple/`
 - [ ] App builds and runs on iOS 17.4+ simulator
 - [ ] App builds and runs on physical iOS device
-- [ ] Bundle identifier set to `com.gaimer.app`
+- [ ] Bundle identifier set to `se.addablelabs.gaimer`
 - [ ] Xcode project committed to repo (excluding user-specific files)
 - [ ] `yarn tauri ios build` produces a release IPA
 
@@ -45,7 +45,7 @@ Gaimer runs in the iOS simulator (confirmed in commit `9a62cf1`) but is far from
    - `@tauri-apps/plugin-shell` → `^2.0.0`
 2. Update `src-tauri/Cargo.toml` Rust dependencies to stable 2.x
 3. Run `yarn tauri ios init` and configure:
-   - Bundle ID: `com.gaimer.app`
+   - Bundle ID: `se.addablelabs.gaimer`
    - Deployment target: iOS 17.4
    - Device family: iPhone (universal)
 4. Configure Xcode signing (development + distribution profiles)
