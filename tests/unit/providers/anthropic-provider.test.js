@@ -1,15 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createAnthropicProvider } from '../../../src/providers/anthropic-provider.js'
-import { shellExec } from '../../../src/helpers/shell.js'
+import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
 
 // Mock the shell helper
 vi.mock('../../../src/helpers/shell.js', () => ({
   shellExec: vi.fn().mockRejectedValue(new Error('not in test')),
+  shellExecWithInput: vi.fn().mockRejectedValue(new Error('not in test')),
+  withTempFile: vi.fn(),
 }))
 
 // What "claude auth status" prints
 const signedIn = JSON.stringify({ loggedIn: true }, null, 2)
 const signedOut = JSON.stringify({ loggedIn: false }, null, 2)
+
+// What "claude -p --output-format json" prints when Claude answers
+function cliOutput(answer) {
+  return JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    num_turns: 1,
+    result: answer,
+    session_id: '00000000-0000-0000-0000-000000000000',
+  }) + '\n'
+}
+
+const game = { title: 'Pong', description: 'Two paddles and a ball', code: 'draw()' }
 
 // A sign-in check that keeps running until the test ends it
 function holdCheck() {
@@ -113,6 +129,87 @@ describe('Anthropic Provider', () => {
   it('generateGame is a function', () => {
     expect(provider.generateGame).toBeDefined()
     expect(typeof provider.generateGame).toBe('function')
+  })
+
+  describe('generateGame', () => {
+    // What the provider wrote to temp files, by file name prefix
+    let tempFiles
+
+    async function generate(prompt = 'A game of pong', options = {}) {
+      const chunks = []
+      for await (const chunk of provider.generateGame(prompt, options)) chunks.push(chunk)
+      return chunks
+    }
+
+    beforeEach(async () => {
+      tempFiles = {}
+      withTempFile.mockImplementation(async (prefix, text, fn) => {
+        tempFiles[prefix] = text
+        return fn(`/tmp/${prefix}-1.txt`)
+      })
+      shellExec.mockResolvedValueOnce(signedIn)
+      await provider.connect()
+    })
+
+    it('runs the Claude CLI as a plain completion with the system prompt in a file', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+      await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
+
+      expect(shellExecWithInput).toHaveBeenLastCalledWith(
+        `claude -p --model sonnet --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --output-format json`,
+        'A game of pong'
+      )
+      expect(tempFiles['gaimer-system']).toBe('You write games.')
+    })
+
+    it('returns the game in the result field', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+      expect(await generate()).toEqual([{ type: 'complete', data: game }])
+    })
+
+    it('finds the result when the login shell prints lines around it', async () => {
+      shellExecWithInput.mockResolvedValueOnce(
+        'Welcome back!\n' + cliOutput(JSON.stringify(game)) + 'Goodbye\n'
+      )
+
+      expect(await generate()).toEqual([{ type: 'complete', data: game }])
+    })
+
+    it('finds the result when the Claude settings turn on verbose output', async () => {
+      const messages = [
+        { type: 'system', subtype: 'init', tools: [] },
+        { type: 'assistant', message: { content: [{ type: 'text', text: JSON.stringify(game) }] } },
+        JSON.parse(cliOutput(JSON.stringify(game))),
+      ]
+      shellExecWithInput.mockResolvedValueOnce(JSON.stringify(messages) + '\n')
+
+      expect(await generate()).toEqual([{ type: 'complete', data: game }])
+    })
+
+    it('fails with the message of a result that is an error', async () => {
+      shellExecWithInput.mockResolvedValueOnce(JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        result: 'Not logged in · Please run /login',
+      }) + '\n')
+
+      await expect(generate()).rejects.toThrow('Claude CLI error: Not logged in · Please run /login')
+    })
+
+    it('fails when the Claude CLI prints no result', async () => {
+      shellExecWithInput.mockResolvedValueOnce('Welcome back!\n')
+
+      await expect(generate()).rejects.toThrow('Claude CLI printed no result')
+    })
+
+    it('fails when the result is not a game', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput('Here is your game!'))
+
+      await expect(generate()).rejects.toThrow('Failed to parse game response')
+    })
   })
 
   it('generateSprite throws not supported', async () => {

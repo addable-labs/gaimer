@@ -49,25 +49,31 @@ export async function shellExec(command, timeoutMs = 180000) {
 }
 
 /**
- * Run a command through a login shell, feeding input via a temp file redirect.
- * Tauri's shell plugin cannot close stdin, so we write to a file and use < redirection.
+ * Write text to a new file in the temp directory and pass its path to fn.
+ * The file is removed once fn has finished.
  */
-export async function shellExecWithInput(command, input, timeoutMs = 300000) {
+export async function withTempFile(prefix, text, fn) {
     const { writeTextFile, remove } = await import("@tauri-apps/plugin-fs");
     const { tempDir, join } = await import("@tauri-apps/api/path");
 
     const tmp = await tempDir();
-    const tmpFile = await join(tmp, `gaimer-prompt-${Date.now()}.txt`);
+    const tmpFile = await join(tmp, `${prefix}-${Date.now()}.txt`);
 
-    await writeTextFile(tmpFile, input);
+    await writeTextFile(tmpFile, text);
 
     try {
-        const result = await shellExec(
-            `${command} < '${tmpFile}'`,
-            timeoutMs
-        );
-        return result;
+        return await fn(tmpFile);
     } finally {
         try { await remove(tmpFile); } catch { /* ignore cleanup errors */ }
     }
+}
+
+/**
+ * Run a command through a login shell, feeding input via a temp file redirect.
+ * Tauri's shell plugin cannot close stdin, so we write to a file and use < redirection.
+ */
+export async function shellExecWithInput(command, input, timeoutMs = 300000) {
+    return withTempFile("gaimer-prompt", input, (tmpFile) =>
+        shellExec(`${command} < '${tmpFile}'`, timeoutMs)
+    );
 }

@@ -1,5 +1,31 @@
-import { shellExec, shellExecWithInput } from "../helpers/shell.js";
+import { shellExec, shellExecWithInput, withTempFile } from "../helpers/shell.js";
 import { safeParseGameJSON } from "../helpers/json-utils.js";
+
+/**
+ * Returns the answer from what `claude -p --output-format json` printed: one
+ * line of JSON holding the result message, or every message of the run when
+ * the user's Claude settings turn on verbose output. The login shell can print
+ * lines of its own around it.
+ */
+function cliResult(output) {
+    for (const line of output.split("\n").reverse()) {
+        let parsed;
+        try {
+            parsed = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        const messages = Array.isArray(parsed) ? parsed : [parsed];
+        const result = messages.filter((message) => message?.type === "result").pop();
+        if (!result) continue;
+        if (result.is_error) {
+            const reason = result.result || result.errors?.join("\n") || result.subtype;
+            throw new Error(`Claude CLI error: ${reason}`);
+        }
+        return result.result;
+    }
+    throw new Error("Claude CLI printed no result");
+}
 
 /**
  * Creates an Anthropic provider that uses the Claude CLI (Claude Code).
@@ -83,16 +109,18 @@ export function createAnthropicProvider() {
             const model = options.model || "claude-sonnet-4-6";
             const systemMessage = options.systemMessage || "";
 
-            const fullPrompt = systemMessage
-                ? `${systemMessage}\n\n---\n\nUser request: ${prompt}`
-                : prompt;
+            // Run Claude as a plain completion: Gaimer's system prompt
+            // replaces Claude Code's, the built-in tools are off, and no
+            // session is saved to disk. Only the user's description goes on
+            // stdin.
+            const output = await withTempFile("gaimer-system", systemMessage, (systemFile) =>
+                shellExecWithInput(
+                    `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --output-format json`,
+                    prompt
+                )
+            );
 
-            const cmd = `claude -p --model ${model} --max-turns 1 --output-format text`;
-
-            // Write prompt to temp file and redirect to stdin
-            const output = await shellExecWithInput(cmd, fullPrompt);
-
-            const result = safeParseGameJSON(output);
+            const result = safeParseGameJSON(cliResult(output));
             if (!result.ok) {
                 throw new Error(`Failed to parse game response: ${result.error}`);
             }
