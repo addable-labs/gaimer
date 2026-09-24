@@ -6,21 +6,25 @@
     "permissions": [
         "core:default",
         "shell:allow-open",
-        "shell:allow-spawn",
         "shell:allow-execute",
-        "shell:allow-stdin-write",
         {
             "identifier": "shell:allow-spawn",
             "allow": [
                 {
                     "name": "shell-cmd",
                     "cmd": "/bin/zsh",
-                    "args": true
+                    "args": [
+                        "-l",
+                        "-c",
+                        {
+                            "validator": "(?:claude --version|claude auth status|claude -p --model [a-z0-9][a-z0-9.-]* --tools \"\" --system-prompt-file '[^']*/gaimer-system-[0-9]+\\.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json < '[^']*/gaimer-prompt-[0-9]+\\.txt')"
+                        }
+                    ]
                 },
                 {
                     "name": "open-app",
                     "cmd": "open",
-                    "args": true
+                    "args": ["-a", "Terminal"]
                 }
             ]
         },
