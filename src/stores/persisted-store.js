@@ -8,6 +8,8 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     // OpenAI API key – loaded asynchronously from credential store
     const apiKey = ref("");
     const apiKeyReady = ref(false);
+    // Why the credential store could not load or save the key, for Settings
+    const apiKeyError = ref("");
 
     // Selected AI provider, and the model chosen for each provider
     // ("" means the provider's default)
@@ -43,6 +45,11 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     // Load API key from credential store (and migrate from localStorage if needed)
     async function init() {
         try {
+            await credentials.importOldVault();
+        } catch (err) {
+            apiKeyError.value = String(err);
+        }
+        try {
             const stored = await credentials.get("openai", "apiKey");
             if (stored) {
                 apiKey.value = stored;
@@ -56,22 +63,31 @@ export const usePersistedStore = defineStore("persisted-store", () => {
                 }
             }
         } catch (err) {
-            console.warn("Credential store init failed, falling back to localStorage:", err);
+            apiKeyError.value = `Could not load the API key from the system keychain: ${err}`;
             const legacy = loadStateFromLocalStorage("apiKey");
             if (legacy) apiKey.value = legacy;
         }
         apiKeyReady.value = true;
     }
 
-    // Persist API key changes to credential store
+    // Persist API key changes to credential store. A key that could not be
+    // saved still works until the app quits. The watcher runs synchronously,
+    // so the key init() loads is not written back.
     watch(apiKey, async (newValue) => {
         if (!apiKeyReady.value) return;
-        if (newValue) {
-            await credentials.set("openai", "apiKey", newValue);
-        } else {
-            await credentials.remove("openai", "apiKey");
+        try {
+            if (newValue) {
+                await credentials.set("openai", "apiKey", newValue);
+            } else {
+                await credentials.remove("openai", "apiKey");
+            }
+            apiKeyError.value = "";
+        } catch (err) {
+            apiKeyError.value = newValue
+                ? `Could not save the API key in the system keychain, so it works only until gaimer quits: ${err}`
+                : `Could not delete the API key from the system keychain: ${err}`;
         }
-    });
+    }, { flush: "sync" });
 
     watch(selectedProvider, (newValue) => {
         saveStateToLocalStorage("selectedProvider", newValue);
@@ -84,6 +100,7 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     return {
         apiKey,
         apiKeyReady,
+        apiKeyError,
         selectedProvider,
         selectedModels,
         init,

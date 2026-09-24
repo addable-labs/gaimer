@@ -9,7 +9,7 @@ const props = defineProps({
 });
 
 const persistedStore = usePersistedStore();
-const { apiKey, selectedProvider, selectedModels } = storeToRefs(persistedStore);
+const { apiKey, apiKeyError, selectedProvider, selectedModels } = storeToRefs(persistedStore);
 
 const userInput = ref(apiKey.value);
 const providerChoice = ref(selectedProvider.value || "openai");
@@ -117,6 +117,8 @@ watch(model, (visible) => {
                     v-model="userInput"
                     label="API key"
                     type="password"
+                    :error="!!apiKeyError"
+                    :error-message="apiKeyError"
                     @keydown.enter="handleSaveApiKey()"
                 >
                     <template v-slot:append>

@@ -21,5 +21,33 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-fs = "2"
+keyring-core = "1"
+# Read the Stronghold vault of versions before the keychain, to move its key
 tauri-plugin-stronghold = "2"
 rust-argon2 = "1"
+
+# The system keychain on each platform. Linux reaches the Secret Service over
+# D-Bus through zbus, in Rust, so it needs no system library.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["protected"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = { version = "1", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# Stronghold encrypts a vault with scrypt, which unoptimized takes about 40
+# seconds each time a vault is written or read: in the tests, and when a
+# debug build moves the old vault's key into the keychain
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3

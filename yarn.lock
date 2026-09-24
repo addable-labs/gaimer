@@ -343,13 +343,6 @@
   dependencies:
     "@tauri-apps/api" "^2.11.0"
 
-"@tauri-apps/plugin-stronghold@^2.3.1":
-  version "2.3.2"
-  resolved "https://registry.yarnpkg.com/@tauri-apps/plugin-stronghold/-/plugin-stronghold-2.3.2.tgz#361837a8e57f0e99300e1f573cfa41f3ed3f361c"
-  integrity sha512-tl+dJCvwlY/MyO9yvu9jldrMLa03UeE087Bjmi8LKD+JmXVRX2rWMEvyekDGBRWGhvyjsOr1gUfhvfc+dXtRRQ==
-  dependencies:
-    "@tauri-apps/api" "^2.11.0"
-
 "@types/chai@^5.2.2":
   version "5.2.3"
   resolved "https://registry.yarnpkg.com/@types/chai/-/chai-5.2.3.tgz#8e9cd9e1c3581fa6b341a5aed5588eb285be0b4a"

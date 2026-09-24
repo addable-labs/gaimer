@@ -95,6 +95,11 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Run Rust tests
+        if: matrix.platform == 'ubuntu-latest'
+        working-directory: src-tauri
+        run: cargo test
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 

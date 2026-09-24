@@ -50,7 +50,6 @@
                 "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Gaimer",
                 "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Gaimer/**"
             ]
-        },
-        "stronghold:default"
+        }
     ]
 }

@@ -1,122 +1,41 @@
-/**
- * Creates a credential store for securely managing provider API keys.
- *
- * When running inside Tauri, uses tauri-plugin-stronghold for encrypted
- * on-device storage. Falls back to an in-memory Map outside of Tauri
- * (browser dev, tests).
- *
- * @returns {Object} Credential store with get, set, remove, removeAll, has, listProviders
- */
+import { invoke } from '@tauri-apps/api/core'
 
-const STRONGHOLD_VAULT = 'credentials'
-const STRONGHOLD_PASSWORD = 'gaimer-credentials-vault'
-const STRONGHOLD_FILE = 'credentials.stronghold'
+/**
+ * Creates a credential store for provider API keys.
+ *
+ * Inside Tauri, keys live in the system keychain, through the commands in
+ * src-tauri/src/credentials.rs, and a failure is passed on to the caller.
+ * Outside of Tauri (browser dev, tests), they live in an in-memory Map.
+ *
+ * @returns {Object} Credential store with importOldVault, get, set and remove
+ */
 
 function isTauri() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
-
-let strongholdInstance = null
-
-async function getStronghold() {
-  if (strongholdInstance) return strongholdInstance
-  const { Stronghold } = await import('@tauri-apps/plugin-stronghold')
-  const { appDataDir, join } = await import('@tauri-apps/api/path')
-  const dataDir = await appDataDir()
-  const path = await join(dataDir, STRONGHOLD_FILE)
-  strongholdInstance = await Stronghold.load(path, STRONGHOLD_PASSWORD)
-  return strongholdInstance
 }
 
 function makeKey(providerId, key) {
   return `${providerId}:${key}`
 }
 
-function createStrongholdStore() {
-  async function getClient() {
-    const stronghold = await getStronghold()
-    try {
-      return await stronghold.loadClient(STRONGHOLD_VAULT)
-    } catch {
-      try {
-        return await stronghold.createClient(STRONGHOLD_VAULT)
-      } catch {
-        // Vault already exists but couldn't load — try loading again
-        return await stronghold.loadClient(STRONGHOLD_VAULT)
-      }
-    }
-  }
-
+function createKeychainStore() {
   return {
-    async set(providerId, key, value) {
-      const client = await getClient()
-      const store = client.getStore()
-      await store.insert(makeKey(providerId, key), Array.from(new TextEncoder().encode(value)))
-      const stronghold = await getStronghold()
-      await stronghold.save()
+    // Versions before the keychain kept the OpenAI API key in a Stronghold
+    // vault. This moves it into the keychain and deletes the vault.
+    async importOldVault() {
+      await invoke('import_old_vault')
     },
 
     async get(providerId, key) {
-      const client = await getClient()
-      const store = client.getStore()
-      try {
-        const data = await store.get(makeKey(providerId, key))
-        if (!data || data.length === 0) return null
-        return new TextDecoder().decode(new Uint8Array(data))
-      } catch {
-        return null
-      }
+      return invoke('get_credential', { name: makeKey(providerId, key) })
+    },
+
+    async set(providerId, key, value) {
+      await invoke('set_credential', { name: makeKey(providerId, key), value })
     },
 
     async remove(providerId, key) {
-      const client = await getClient()
-      const store = client.getStore()
-      try {
-        await store.remove(makeKey(providerId, key))
-        const stronghold = await getStronghold()
-        await stronghold.save()
-      } catch {
-        // key didn't exist
-      }
-    },
-
-    async removeAll(providerId) {
-      // Stronghold doesn't support key enumeration, so we track providers
-      // via a metadata key that lists all stored keys per provider
-      const client = await getClient()
-      const store = client.getStore()
-      const indexKey = `__index:${providerId}`
-      try {
-        const data = await store.get(indexKey)
-        if (data && data.length > 0) {
-          const keys = JSON.parse(new TextDecoder().decode(new Uint8Array(data)))
-          for (const k of keys) {
-            try { await store.remove(makeKey(providerId, k)) } catch { /* ignore */ }
-          }
-          await store.remove(indexKey)
-        }
-      } catch {
-        // no index
-      }
-      const stronghold = await getStronghold()
-      await stronghold.save()
-    },
-
-    async has(providerId, key) {
-      const value = await this.get(providerId, key)
-      return value !== null
-    },
-
-    async listProviders() {
-      const client = await getClient()
-      const store = client.getStore()
-      try {
-        const data = await store.get('__providers')
-        if (!data || data.length === 0) return []
-        return JSON.parse(new TextDecoder().decode(new Uint8Array(data)))
-      } catch {
-        return []
-      }
+      await invoke('delete_credential', { name: makeKey(providerId, key) })
     },
   }
 }
@@ -125,6 +44,9 @@ function createInMemoryStore() {
   const store = new Map()
 
   return {
+    // There is no old vault outside of Tauri
+    async importOldVault() {},
+
     async set(providerId, key, value) {
       store.set(makeKey(providerId, key), value)
     },
@@ -161,23 +83,5 @@ function createInMemoryStore() {
 }
 
 export function createCredentialStore() {
-  if (isTauri()) {
-    // Wrap Stronghold store so any failure falls back to in-memory
-    const stronghold = createStrongholdStore()
-    const fallback = createInMemoryStore()
-    const methods = ['get', 'set', 'remove', 'removeAll', 'has', 'listProviders']
-    const safe = {}
-    for (const m of methods) {
-      safe[m] = async (...args) => {
-        try {
-          return await stronghold[m](...args)
-        } catch (err) {
-          console.warn(`Credential store (${m}) failed, using fallback:`, err)
-          return fallback[m](...args)
-        }
-      }
-    }
-    return safe
-  }
-  return createInMemoryStore()
+  return isTauri() ? createKeychainStore() : createInMemoryStore()
 }

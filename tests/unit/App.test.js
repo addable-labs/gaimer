@@ -21,6 +21,7 @@ vi.mock('../../src/providers/anthropic-provider.js', () => ({
 const credentials = vi.hoisted(() => new Map())
 vi.mock('../../src/credentials/credential-store.js', () => ({
   createCredentialStore: () => ({
+    importOldVault: async () => {},
     get: async (providerId, key) => credentials.get(`${providerId}:${key}`) ?? null,
     set: async (providerId, key, value) => { credentials.set(`${providerId}:${key}`, value) },
     remove: async (providerId, key) => { credentials.delete(`${providerId}:${key}`) },
