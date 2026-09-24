@@ -28,14 +28,22 @@ const anthropicProvider = createAnthropicProvider();
 registry.register(openaiProvider);
 registry.register(anthropicProvider);
 
+// Counts connects and disconnects. Claude's sign-in check takes a while,
+// and meanwhile the user can pick another provider or press Disconnect.
+// When a connect ends after a newer connect or a disconnect has started,
+// its result is out of date and is ignored.
+let connectionChanges = 0;
+
 // Connect the selected provider. A provider that fails to connect is no
 // longer active, so generating asks the user to open Settings. (OpenAI's
 // connect fails only without an API key, which is checked first.)
 async function connectActiveProvider() {
+    const change = ++connectionChanges;
     const id = selectedProvider.value;
 
     if (id === "openai" && apiKey.value) {
         const result = await openaiProvider.connect({ apiKey: apiKey.value });
+        if (change !== connectionChanges) return;
         if (result.success) {
             registry.setActive("openai");
             providerStore.setActiveProvider("openai");
@@ -43,6 +51,7 @@ async function connectActiveProvider() {
         }
     } else if (id === "anthropic") {
         const result = await anthropicProvider.connect();
+        if (change !== connectionChanges) return;
         if (result.success) {
             registry.setActive("anthropic");
             providerStore.setActiveProvider("anthropic");
@@ -58,6 +67,7 @@ async function connectActiveProvider() {
 // Disconnect a provider. It is then no longer active, so until another
 // provider connects, generating asks the user to open Settings.
 async function disconnectProvider(provider) {
+    connectionChanges++;
     await provider.disconnect();
     providerStore.removeConnection(provider.id);
     registry.deactivate(provider.id);

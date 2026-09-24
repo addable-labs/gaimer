@@ -90,6 +90,16 @@ async function openClaudePanel(wrapper) {
   return wrapper.findComponent(ConnectClaude)
 }
 
+// Keep Claude's next sign-in check running until the test ends it
+function holdClaudeConnect() {
+  const connect = providers.anthropic.connect.getMockImplementation()
+  let finish
+  providers.anthropic.connect.mockImplementationOnce(
+    () => new Promise((resolve) => { finish = () => resolve(connect()) })
+  )
+  return () => finish()
+}
+
 enableAutoUnmount(afterEach)
 
 describe('App', () => {
@@ -189,17 +199,51 @@ describe('App', () => {
 
       // Claude's sign-in check is still running when the user switches back
       vi.spyOn(console, 'warn').mockImplementation(() => {})
-      let finishClaudeConnect
-      providers.anthropic.connect.mockImplementationOnce(
-        () => new Promise((resolve) => { finishClaudeConnect = resolve })
-      )
+      const finishClaudeConnect = holdClaudeConnect()
       await switchProvider(wrapper, 'anthropic')
       await switchProvider(wrapper, 'openai')
-      finishClaudeConnect({ success: false, error: 'Not logged in' })
+      providers.anthropic.canConnect = false
+      finishClaudeConnect()
       await flushPromises()
       await generate()
 
       expect(providers.openai.generateGame).toHaveBeenCalledOnce()
+    })
+
+    it('stays OpenAI when Claude connects after the user switched back', async () => {
+      credentials.set('openai:apiKey', 'sk-test')
+      const wrapper = await startApp()
+
+      // Claude's sign-in check is still running when the user switches back
+      const finishClaudeConnect = holdClaudeConnect()
+      await switchProvider(wrapper, 'anthropic')
+      await switchProvider(wrapper, 'openai')
+      finishClaudeConnect()
+      await flushPromises()
+      await generate()
+
+      expect(providers.openai.generateGame).toHaveBeenCalledOnce()
+      expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+    })
+
+    it('has none when Claude connects after the user disconnected it', async () => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      const wrapper = await startApp({ ConnectClaude: true })
+
+      // When the Claude panel finds the CLI signed in, App checks the sign-in
+      // too. The user presses Disconnect before that check ends.
+      const panel = await openClaudePanel(wrapper)
+      const finishClaudeConnect = holdClaudeConnect()
+      panel.vm.$emit('connected')
+      await flushPromises()
+      panel.vm.$emit('disconnected')
+      await flushPromises()
+      finishClaudeConnect()
+      await flushPromises()
+      await generate()
+
+      expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
+      expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
     })
   })
 })
