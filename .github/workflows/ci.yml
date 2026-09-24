@@ -106,7 +106,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: test
     steps:
       - uses: actions/checkout@v7
@@ -129,6 +129,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
       - name: Initialize iOS project
         run: yarn tauri ios init
