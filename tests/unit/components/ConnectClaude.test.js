@@ -4,10 +4,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { Quasar, QBtn } from 'quasar'
 import ConnectClaude from '../../../src/components/ConnectClaude.vue'
 import { shellExec } from '../../../src/helpers/shell.js'
+import { shell } from '../../plugin-shell.js'
 
 vi.mock('../../../src/helpers/shell.js', () => ({
   shellExec: vi.fn(),
 }))
+
+// Runs commands as the shell plugin would under the app's capability
+vi.mock('@tauri-apps/plugin-shell', () => import('../../plugin-shell.js'))
 
 // What the panel finds when it runs the Claude CLI
 function claudeCli({ installed = true, signedIn = false } = {}) {
@@ -41,6 +45,7 @@ describe('ConnectClaude', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    shell.ran = []
   })
 
   afterEach(() => {
@@ -78,6 +83,18 @@ describe('ConnectClaude', () => {
       await copyButton(wrapper).trigger('click')
 
       expect(writeText).toHaveBeenCalledWith('claude auth login')
+    })
+  })
+
+  describe('Sign in button', () => {
+    it('opens Terminal', async () => {
+      claudeCli({ signedIn: false })
+      const wrapper = await openPanel()
+
+      await button(wrapper, 'Sign in to Claude').trigger('click')
+      await flushPromises()
+
+      expect(shell.ran).toEqual([{ cmd: 'open', args: ['-a', 'Terminal'] }])
     })
   })
 })

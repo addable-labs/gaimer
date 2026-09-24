@@ -62,7 +62,7 @@ describe('main window capability', () => {
   it('grants only the shell plugin commands the app calls', () => {
     const commands = ['execute', 'kill', 'open', 'spawn', 'stdin_write']
 
-    expect(commands.filter((command) => grants('shell', command))).toEqual(['execute', 'open', 'spawn'])
+    expect(commands.filter((command) => grants('shell', command))).toEqual(['open', 'spawn'])
   })
 
   describe('shell-cmd', () => {

@@ -66,9 +66,10 @@ async function copy(text) {
 async function startLogin() {
     phase.value = "authenticating";
 
-    // Open Terminal on macOS
+    // Open Terminal on macOS. The capability allows open-app through
+    // spawn() only
     try {
-        await Command.create("open-app", ["-a", "Terminal"]).execute();
+        await Command.create("open-app", ["-a", "Terminal"]).spawn();
     } catch {
         // Ignore — user can open terminal manually
     }
