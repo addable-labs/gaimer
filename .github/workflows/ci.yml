@@ -105,8 +105,6 @@ jobs:
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target ${{ matrix.target }}
 
@@ -143,5 +141,3 @@ jobs:
 
       - name: Build iOS (simulator)
         run: yarn tauri ios build --target aarch64-sim
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
