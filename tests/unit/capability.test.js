@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import { createAnthropicProvider } from '../../src/providers/anthropic-provider.js'
@@ -54,7 +53,6 @@ enableAutoUnmount(afterEach)
 
 describe('main window capability', () => {
   beforeEach(() => {
-    setActivePinia(createPinia())
     shell.ran = []
     shell.output = claudeCli
   })

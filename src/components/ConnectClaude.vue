@@ -3,9 +3,6 @@ import { ref, onMounted } from "vue";
 import { Command } from "@tauri-apps/plugin-shell";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { shellExec } from "../helpers/shell.js";
-import { useProviderStore } from "../stores/provider-store.js";
-
-const providerStore = useProviderStore();
 
 const emit = defineEmits(["connected", "disconnected"]);
 
@@ -40,10 +37,6 @@ async function checkAuth() {
             output.includes("Logged in")
         ) {
             phase.value = "connected";
-            providerStore.addConnection("anthropic", {
-                connected: true,
-                authMethod: "subscription",
-            });
             emit("connected");
         } else {
             phase.value = "not_authenticated";
@@ -87,7 +80,6 @@ async function retryAuth() {
 }
 
 function disconnect() {
-    providerStore.removeConnection("anthropic");
     phase.value = "not_authenticated";
     emit("disconnected");
 }

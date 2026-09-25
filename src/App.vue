@@ -2,7 +2,6 @@
 import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
-import { useProviderStore } from "./stores/provider-store.js";
 import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
@@ -17,7 +16,6 @@ import { safeParseGameJSON } from "./helpers/json-utils.js";
 
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
-const providerStore = useProviderStore();
 const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
 const { apiKey, selectedProvider, selectedModels } = storeToRefs(persistedStore);
 
@@ -46,19 +44,14 @@ async function connectActiveProvider() {
         if (change !== connectionChanges) return;
         if (result.success) {
             registry.setActive("openai");
-            providerStore.setActiveProvider("openai");
-            providerStore.addConnection("openai", { connected: true, authMethod: "apikey" });
         }
     } else if (id === "anthropic") {
         const result = await anthropicProvider.connect();
         if (change !== connectionChanges) return;
         if (result.success) {
             registry.setActive("anthropic");
-            providerStore.setActiveProvider("anthropic");
-            providerStore.addConnection("anthropic", { connected: true, authMethod: "subscription" });
         } else {
             console.warn("Anthropic connect:", result.error);
-            providerStore.removeConnection("anthropic");
             registry.deactivate("anthropic");
         }
     }
@@ -69,7 +62,6 @@ async function connectActiveProvider() {
 async function disconnectProvider(provider) {
     connectionChanges++;
     await provider.disconnect();
-    providerStore.removeConnection(provider.id);
     registry.deactivate(provider.id);
 }
 

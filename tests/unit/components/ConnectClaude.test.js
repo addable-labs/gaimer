@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 import { Quasar, QBtn } from 'quasar'
 import ConnectClaude from '../../../src/components/ConnectClaude.vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -48,7 +47,6 @@ describe('ConnectClaude', () => {
   let writeText
 
   beforeEach(() => {
-    setActivePinia(createPinia())
     writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
     shell.ran = []
   })
