@@ -16,6 +16,9 @@ export function createOpenAIProvider() {
 
         async connect(credentials = {}) {
             if (!credentials.apiKey) {
+                // Not connected, even when an earlier connect succeeded
+                client = null;
+                connected = false;
                 return { success: false, error: "API key is required" };
             }
             client = new OpenAI({

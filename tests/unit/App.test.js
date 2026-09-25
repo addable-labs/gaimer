@@ -44,15 +44,18 @@ vi.mock('../../src/helpers/game-storage.js', () => ({
   }),
 }))
 
-// Like the real providers: a failed connect() leaves the provider as it
-// was, and generateGame() throws unless the provider is connected
+// Like the real providers: a failed connect() leaves the provider not
+// connected, and generateGame() throws unless the provider is connected
 function fakeProvider(id) {
   let connected = false
   const provider = {
     id,
     canConnect: true,
     connect: vi.fn(async () => {
-      if (!provider.canConnect) return { success: false, error: 'Not logged in' }
+      if (!provider.canConnect) {
+        connected = false
+        return { success: false, error: 'Not logged in' }
+      }
       connected = true
       return { success: true }
     }),

@@ -67,6 +67,16 @@ describe('OpenAI Provider', () => {
     expect(result.success).toBe(false)
   })
 
+  it('is not connected once a later connect fails', async () => {
+    await provider.connect({ apiKey: 'sk-test-key' })
+
+    const result = await provider.connect({})
+
+    expect(result.success).toBe(false)
+    expect(provider.isConnected()).toBe(false)
+    await expect(provider.generateGame('A game of pong').next()).rejects.toThrow('Provider not connected')
+  })
+
   it('disconnect clears connected state', async () => {
     await provider.connect({ apiKey: 'sk-test-key' })
     await provider.disconnect()
