@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useQuasar } from "quasar";
 import { useAppStore } from "../stores/app-store.js";
 import { createSandbox } from "../engine/sandbox.js";
@@ -61,19 +61,13 @@ function containerSize() {
     return { width: Math.floor(rect.width), height: Math.floor(rect.height) };
 }
 
+// Loads the game into the container. It runs once: App gives each game a
+// GameContainer of its own.
 function loadGameScript() {
     const container = containerRef.value;
     if (!container || !game.code) return;
 
-    saveSupported.value = false;
-
-    // Destroy previous sandbox if it exists
-    if (sandbox) {
-        sandbox.destroy();
-        sandbox = null;
-    }
-
-    // Create a new sandboxed iframe for the game, the size of the container
+    // Create a sandboxed iframe for the game, the size of the container
     sandbox = createSandbox(container, containerSize());
 
     // Listen for messages from the sandbox
@@ -132,13 +126,8 @@ const displayNotification = (message) => {
     });
 };
 
-watchEffect(async () => {
-    console.log("Game content updated");
-    await nextTick();
-    loadGameScript();
-});
-
 onMounted(() => {
+    loadGameScript();
     document.addEventListener("visibilitychange", handleVisibilityChange);
     resizeObserver = new ResizeObserver(fitGameToContainer);
     resizeObserver.observe(containerRef.value);

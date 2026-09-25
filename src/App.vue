@@ -185,19 +185,21 @@ const generateGame = async (prompt) => {
     await nextTick();
 };
 
-// Load selected game from filesystem
+// Load selected game from filesystem and show it. While the file is being
+// read, the user can open another game or delete this one; then neither this
+// game nor an error reading it is shown.
 const loadGame = async (id) => {
     state.value = "loading";
     loadedGame.value = id;
     try {
         const item = await loadGameFromFS(id);
+        if (loadedGame.value !== id) return;
         const result = safeParseGameJSON(item.content);
         if (!result.ok) throw new Error(result.error);
         game.value = result.data;
-        setTimeout(() => {
-            state.value = "done";
-        }, gameStates.value.loading.duration);
+        state.value = "done";
     } catch (error) {
+        if (loadedGame.value !== id) return;
         console.error("Failed to load game:", id, error);
         state.value = "error";
         debugMessage.value = error.message || String(error);
@@ -205,11 +207,13 @@ const loadGame = async (id) => {
 };
 
 // When the user deletes the open game, take it off the screen, since its
-// progress can no longer be saved. A new game being generated stays.
+// progress can no longer be saved. If the game is still being read, leave
+// "Loading game...": loadGame will not show it. A new game being generated
+// stays.
 function onGameDeleted(id) {
     if (loadedGame.value !== id) return;
     loadedGame.value = null;
-    if (state.value === "done") state.value = "idle";
+    if (state.value === "done" || state.value === "loading") state.value = "idle";
 }
 
 const debugMessage = ref("no problems here!");
@@ -221,15 +225,14 @@ const greetingMessage = `
 
 const state = ref("idle");
 const gameStates = ref({
-    idle: { message: greetingMessage, style: "", duration: 0 },
-    generating: { message: "Generating game...", style: "", duration: 0 },
-    loading: { message: "Loading game...", style: "", duration: 1000 },
+    idle: { message: greetingMessage, style: "" },
+    generating: { message: "Generating game...", style: "" },
+    loading: { message: "Loading game...", style: "" },
     done: {
         message: "",
         style: "",
-        duration: 0,
     },
-    error: { message: "", style: "", duration: 0 },
+    error: { message: "", style: "" },
 });
 
 // Make sure to initiate the IndexedDB object store
@@ -360,8 +363,10 @@ watch(game, (newVal) => {
                     </div>
                 </div>
 
+                <!-- Each game gets a GameContainer of its own, which loads the game when mounted -->
                 <GameContainer
                     v-if="state === 'done'"
+                    :key="loadedGame"
                     :game="game"
                     class="game-container-full"
                 />

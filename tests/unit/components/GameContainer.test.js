@@ -30,29 +30,28 @@ class FakeResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', FakeResizeObserver)
 
-// Sets the size the game's container measures
-function setContainerSize(wrapper, { width, height }) {
-  const container = wrapper.find('.game-canvas-wrapper').element
-  container.getBoundingClientRect = () => new DOMRect(0, 0, width, height)
-}
+// The size the game's container measures. happy-dom lays nothing out, so the
+// tests set it. As on the page, the container has its size before the game is
+// shown: the component loads the game when it is mounted.
+let containerSize
 
 // Shows a game in a container of the given size, with the Quasar plugins the
 // app installs
 async function showGame(size) {
+  containerSize = size
   const wrapper = mount(GameContainer, {
     props: { game: { code: '// game', controls: 'Arrow keys', rules: 'Catch the stars' } },
     attachTo: document.body,
     global: { plugins: [[Quasar, { plugins: quasarPlugins }]] },
   })
-  setContainerSize(wrapper, size)
   await flushPromises()
   return wrapper
 }
 
 // Resizes the container as resizing the window does: the window reports a
 // resize, and the container's resize observers report its new size
-async function resizeContainer(wrapper, size) {
-  setContainerSize(wrapper, size)
+async function resizeContainer(size) {
+  containerSize = size
   window.dispatchEvent(new Event('resize'))
   for (const observer of resizeObservers) {
     observer.callback([{ target: observer.element }], observer)
@@ -86,8 +85,13 @@ describe('GameContainer', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
-    // The component logs when it loads a game
+    // The component logs when the game is ready
     vi.spyOn(console, 'log').mockImplementation(() => {})
+    const measure = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (!this.classList.contains('game-canvas-wrapper')) return measure.call(this)
+      return new DOMRect(0, 0, containerSize.width, containerSize.height)
+    })
   })
 
   afterEach(() => {
@@ -101,7 +105,7 @@ describe('GameContainer', () => {
     const page = iframe.srcdoc
     expect(page).toContain('<canvas id="game-canvas" width="800" height="600">')
 
-    await resizeContainer(wrapper, { width: 400, height: 600 })
+    await resizeContainer({ width: 400, height: 600 })
 
     // The same iframe with the same page: the game was not loaded again
     expect(wrapper.findAll('iframe')).toHaveLength(1)
@@ -110,7 +114,7 @@ describe('GameContainer', () => {
     // Half its size, centred in the narrower container
     expect(iframe.style.transform).toBe('translate(0px, 150px) scale(0.5)')
 
-    await resizeContainer(wrapper, { width: 800, height: 600 })
+    await resizeContainer({ width: 800, height: 600 })
     expect(wrapper.find('iframe').element).toBe(iframe)
     expect(iframe.style.transform).toBe('translate(0px, 0px) scale(1)')
   })

@@ -7,7 +7,7 @@ import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import GameList from '../../src/components/GameList.vue'
 import GameContainer from '../../src/components/GameContainer.vue'
-import { listGames } from '../../src/helpers/game-storage.js'
+import { listGames, loadGame as loadGameFromFS } from '../../src/helpers/game-storage.js'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
 
@@ -31,11 +31,16 @@ vi.mock('../../src/credentials/credential-store.js', () => ({
   }),
 }))
 
+// The saved games in the game folder, by id, as the game storage returns them
+const savedGames = vi.hoisted(() => new Map())
 vi.mock('../../src/helpers/game-storage.js', () => ({
   initStorage: vi.fn(async () => {}),
   listGames: vi.fn(async () => []),
   saveGame: vi.fn(async () => {}),
-  loadGame: vi.fn(),
+  loadGame: vi.fn(async (id) => {
+    if (!savedGames.has(id)) throw new Error(`Game not found: ${id}`)
+    return savedGames.get(id)
+  }),
 }))
 
 // Like the real providers: a failed connect() leaves the provider as it
@@ -122,12 +127,40 @@ async function deleteGame(wrapper, id) {
   await flushPromises()
 }
 
+// Puts a game in the game folder, whose code calls a function named after it
+function addSavedGame(id, title) {
+  const game = { title, code: `${title.toLowerCase()}()` }
+  savedGames.set(id, { id, prompt: JSON.stringify(`A game of ${title}`), content: JSON.stringify(game) })
+}
+
+// What GameList tells App when the user picks a game in the list
+async function openGame(wrapper, id) {
+  wrapper.findComponent(GameList).vm.$emit('loadGame', id)
+  await flushPromises()
+}
+
+// Keep the next read of a saved game running until the test ends it
+function holdGameRead() {
+  const read = loadGameFromFS.getMockImplementation()
+  let finish
+  loadGameFromFS.mockImplementationOnce(
+    (id) => new Promise((resolve) => { finish = () => resolve(read(id)) })
+  )
+  return () => finish()
+}
+
+// The page of the game running on screen, which holds the game's code
+function gamePage(wrapper) {
+  return wrapper.find('iframe').element.srcdoc
+}
+
 enableAutoUnmount(afterEach)
 
 describe('App', () => {
   beforeEach(() => {
     localStorage.clear()
     credentials.clear()
+    savedGames.clear()
     providers.openai = fakeProvider('openai')
     providers.anthropic = fakeProvider('anthropic')
     setActivePinia(createPinia())
@@ -332,6 +365,90 @@ describe('App', () => {
       finishGenerating()
       await flushPromises()
       expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
+    })
+  })
+
+  describe('opening a saved game', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+    })
+
+    it('shows the game as soon as it has been read', async () => {
+      addSavedGame('100', 'Tetris')
+      const wrapper = await startApp()
+
+      await openGame(wrapper, '100')
+
+      expect(wrapper.text()).not.toContain('Loading game...')
+      expect(wrapper.findComponent(GameContainer).props('game').title).toBe('Tetris')
+    })
+
+    it('runs each game opened, and then a new game that finishes generating', async () => {
+      addSavedGame('100', 'Tetris')
+      addSavedGame('200', 'Snake')
+      const wrapper = await startApp({ Settings: true, GameContainer: false })
+
+      // The user plays saved games while a new one is being generated
+      const finishGenerating = holdClaudeGeneration()
+      await generate()
+      await openGame(wrapper, '100')
+      expect(gamePage(wrapper)).toContain('tetris()')
+      await openGame(wrapper, '200')
+      expect(gamePage(wrapper)).toContain('snake()')
+
+      finishGenerating()
+      await flushPromises()
+
+      // The new game, whose code is draw(), runs in place of the game that was open
+      expect(wrapper.findAll('iframe')).toHaveLength(1)
+      expect(gamePage(wrapper)).toContain('draw()')
+      expect(gamePage(wrapper)).not.toContain('snake()')
+    })
+
+    it('shows the game opened last when an earlier one takes longer to read', async () => {
+      addSavedGame('100', 'Tetris')
+      addSavedGame('200', 'Snake')
+      const wrapper = await startApp()
+
+      const finishReadingTetris = holdGameRead()
+      await openGame(wrapper, '100')
+      await openGame(wrapper, '200')
+      finishReadingTetris()
+      await flushPromises()
+
+      expect(wrapper.findComponent(GameContainer).props('game').title).toBe('Snake')
+      expect(useAppStore().loadedGame).toBe('200')
+    })
+
+    it('does not show a game deleted while it was being read', async () => {
+      addSavedGame('100', 'Tetris')
+      const wrapper = await startApp()
+
+      const finishReading = holdGameRead()
+      await openGame(wrapper, '100')
+      expect(wrapper.text()).toContain('Loading game...')
+      await deleteGame(wrapper, '100')
+      finishReading()
+      await flushPromises()
+
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+    })
+
+    it('shows no error when a game is deleted before it could be read', async () => {
+      addSavedGame('100', 'Tetris')
+      const wrapper = await startApp()
+
+      const finishReading = holdGameRead()
+      await openGame(wrapper, '100')
+      // The game's file is gone by the time it is read
+      savedGames.delete('100')
+      await deleteGame(wrapper, '100')
+      finishReading()
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('Game not found')
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
     })
   })
 })
