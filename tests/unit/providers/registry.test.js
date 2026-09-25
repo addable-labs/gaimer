@@ -49,39 +49,6 @@ describe('ProviderRegistry', () => {
     })
   })
 
-  describe('list', () => {
-    it('returns all registered providers', () => {
-      registry.register(createMockProvider('anthropic'))
-      registry.register(createMockProvider('openai'))
-      const list = registry.list()
-      expect(list).toHaveLength(2)
-      expect(list.map(p => p.id)).toEqual(['anthropic', 'openai'])
-    })
-
-    it('returns empty array when no providers', () => {
-      expect(registry.list()).toEqual([])
-    })
-  })
-
-  describe('remove', () => {
-    it('removes a registered provider', () => {
-      registry.register(createMockProvider('anthropic'))
-      registry.remove('anthropic')
-      expect(registry.get('anthropic')).toBeNull()
-    })
-
-    it('does not error when removing non-existent provider', () => {
-      expect(() => registry.remove('nonexistent')).not.toThrow()
-    })
-
-    it('clears active if removed provider was active', () => {
-      registry.register(createMockProvider('anthropic'))
-      registry.setActive('anthropic')
-      registry.remove('anthropic')
-      expect(registry.getActive()).toBeNull()
-    })
-  })
-
   describe('setActive / getActive', () => {
     it('sets and gets the active provider', () => {
       const provider = createMockProvider('anthropic')

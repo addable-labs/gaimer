@@ -273,7 +273,7 @@ function onGameDeleted(id) {
     if (state.value === "done" || state.value === "loading") state.value = "idle";
 }
 
-const debugMessage = ref("no problems here!");
+const debugMessage = ref("");
 const greetingMessage = `
     Welcome to Gaimer, your very own game generator assistant!
     Describe your idea of a game as detailed as possible, click the send button,

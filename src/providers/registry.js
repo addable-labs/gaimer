@@ -25,17 +25,6 @@ export function createProviderRegistry() {
       return providers.get(id) || null
     },
 
-    list() {
-      return Array.from(providers.values())
-    },
-
-    remove(id) {
-      providers.delete(id)
-      if (activeId === id) {
-        activeId = null
-      }
-    },
-
     setActive(id) {
       if (!providers.has(id)) {
         throw new Error(`Provider "${id}" is not registered`)
