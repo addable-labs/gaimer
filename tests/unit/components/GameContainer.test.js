@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import GameContainer from '../../../src/components/GameContainer.vue'
 import { quasarPlugins } from '../../../src/quasar-plugins.js'
-import { loadGameState } from '../../../src/helpers/game-storage.js'
+import { loadGameState, saveGameState } from '../../../src/helpers/game-storage.js'
 import { useAppStore } from '../../../src/stores/app-store.js'
 
 vi.mock('../../../src/helpers/game-storage.js', () => ({
@@ -77,6 +77,16 @@ function playGame(wrapper, state) {
 // Sends a message from the game in the iframe to the app
 function sendFromGame(game, message) {
   window.dispatchEvent(new MessageEvent('message', { data: message, source: game }))
+}
+
+// The game's Save button
+function saveButton(wrapper) {
+  return wrapper.findAll('button').find((button) => button.find('.mdi-content-save').exists())
+}
+
+// The text of the notifications shown
+function notifications() {
+  return [...document.querySelectorAll('.q-notification')].map((n) => n.textContent).join()
 }
 
 enableAutoUnmount(afterEach)
@@ -160,8 +170,54 @@ describe('GameContainer', () => {
       ['Game error:', "Can't find variable: player"],
       ['Game error:', 'level is undefined'],
     ])
-    const notifications = [...document.querySelectorAll('.q-notification')].map((n) => n.textContent)
-    expect(notifications.join()).toContain("Game error: Can't find variable: player")
-    expect(notifications.join()).toContain('Game error: level is undefined')
+    expect(notifications()).toContain("Game error: Can't find variable: player")
+    expect(notifications()).toContain('Game error: level is undefined')
+  })
+
+  it("says at once why a save failed when the game's state cannot be sent", async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    useAppStore().loadedGame = '1790000000000'
+    const wrapper = await showGame({ width: 800, height: 600 })
+    const { game } = playGame(wrapper, { score: 0 })
+    sendFromGame(game, { type: 'ready', data: {} })
+    await vi.advanceTimersByTimeAsync(100)
+
+    // The game's state now holds a function, which postMessage cannot copy:
+    // the game page reports the error, and tells the app the save failed
+    const reason = 'The object can not be cloned.'
+    game.postMessage.mockImplementation((message) => {
+      if (message.type !== 'saveState') return
+      setTimeout(() => {
+        sendFromGame(game, { type: 'error', data: { message: reason } })
+        sendFromGame(game, { type: 'saveFailed', data: { message: reason } })
+      })
+    })
+    await saveButton(wrapper).trigger('click')
+    expect(saveButton(wrapper).find('.q-spinner').exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Long before the 2 s the app waits for an answer
+    expect(notifications()).toContain(`Save failed: ${reason}`)
+    expect(saveButton(wrapper).find('.q-spinner').exists()).toBe(false)
+  })
+
+  it('says why a save failed when the state file cannot be written, or the game does not answer', async () => {
+    useAppStore().loadedGame = '1790000000000'
+    const wrapper = await showGame({ width: 800, height: 600 })
+    const { game } = playGame(wrapper, { score: 0 })
+    sendFromGame(game, { type: 'ready', data: {} })
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Tauri's file system fails with a string
+    vi.mocked(saveGameState).mockRejectedValueOnce('failed to open file (os error 13)')
+    await saveButton(wrapper).trigger('click')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(notifications()).toContain('Save failed: failed to open file (os error 13)')
+
+    // The game stops answering
+    game.postMessage.mockImplementation(() => {})
+    await saveButton(wrapper).trigger('click')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(notifications()).toContain('Save failed: The game did not answer')
   })
 })

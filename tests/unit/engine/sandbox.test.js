@@ -6,14 +6,19 @@ import { gameScript, harnessScript, parsePage } from '../../game-page.js'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
 
 // Runs the game page's harness, its first script, with a stand-in window and
-// parent window, and returns them
-function runHarness(srcdoc) {
+// parent window, and returns them with the messages the parent received. As
+// in a browser, the parent receives a copy of each message, and postMessage
+// throws on a message it cannot copy. With game: true, the game's script
+// runs after the harness, in the same scope, as in the page.
+function runHarness(srcdoc, { game = false } = {}) {
   const page = parsePage(srcdoc)
   Object.defineProperty(page, 'currentScript', { value: page.querySelector('script') })
   const win = new EventTarget()
-  const parent = { postMessage: vi.fn() }
-  new Function('window', 'document', 'parent', harnessScript(srcdoc))(win, page, parent)
-  return { win, parent }
+  const received = []
+  const parent = { postMessage: vi.fn((message) => received.push(structuredClone(message))) }
+  const scripts = game ? [harnessScript(srcdoc), gameScript(srcdoc)] : [harnessScript(srcdoc)]
+  new Function('window', 'document', 'parent', scripts.join('\n'))(win, page, parent)
+  return { win, parent, received }
 }
 
 // Runs the game's script with a stand-in window and harness, and returns the
@@ -346,6 +351,42 @@ describe('createSandbox', () => {
       { type: 'error', data: { message: 'timeout', stack: undefined } },
       '*'
     )
+  })
+
+  it("the game page tells the parent at once that a save failed, and why, when postMessage cannot copy the game's state", () => {
+    // The game answers saveState with state that holds a function
+    const { win, received } = runHarness(
+      loadSrcdoc(`window.__gaimer_onMessage = function (msg) {
+  if (msg.type === 'saveState') {
+    __gaimer_sendMessage('stateData', { score: 42, update: function () {} });
+    window.answered = true;
+  }
+};`),
+      { game: true }
+    )
+    expect(received).toEqual([{ type: 'ready', data: {} }])
+
+    win.dispatchEvent(new MessageEvent('message', { data: { type: 'saveState', data: {} } }))
+
+    // The error does not stop the game's code. The parent gets it as a game
+    // error, and as the answer to saveState.
+    expect(win.answered).toBe(true)
+    const message = 'function () {} could not be cloned.'
+    expect(received.slice(1)).toEqual([
+      { type: 'error', data: { message, stack: expect.stringContaining(message) } },
+      { type: 'saveFailed', data: { message } }
+    ])
+  })
+
+  it('the game page does not report an error report it cannot send, which could loop', () => {
+    const { win, parent } = runHarness(loadSrcdoc('// game'))
+    // No message can reach the parent
+    parent.postMessage.mockImplementation(() => {
+      throw new DOMException('The object can not be cloned.', 'DataCloneError')
+    })
+    win.dispatchEvent(new ErrorEvent('error', { error: new Error('boom'), message: 'Uncaught Error: boom' }))
+    // The report was tried once
+    expect(parent.postMessage).toHaveBeenCalledOnce()
   })
 
   it('loadGame() keeps "</script" in the game code as written, and it cannot end the script early', () => {

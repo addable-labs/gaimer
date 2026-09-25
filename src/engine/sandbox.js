@@ -60,9 +60,22 @@ window.addEventListener('message', function(event) {
   }
 });
 
-// Notify parent when ready
+// Send a message to the parent. postMessage throws on data it cannot copy,
+// such as a function or an Image in the state a game saves. Report that
+// error, and if the message was the game's answer to saveState, tell the
+// parent that the save failed and why, rather than let it wait for an
+// answer. An error report that cannot be sent is not reported in turn,
+// which could loop.
 function __gaimer_sendMessage(type, data) {
-  parent.postMessage({ type: type, data: data }, '*');
+  try {
+    parent.postMessage({ type: type, data: data }, '*');
+  } catch (error) {
+    if (type === 'error') return;
+    __gaimer_reportError(error, String(error));
+    if (type === 'stateData') {
+      __gaimer_sendMessage('saveFailed', { message: error.message });
+    }
+  }
 }
 
 // Report errors to the parent: a syntax error in the game's script, which
@@ -150,20 +163,25 @@ window.addEventListener('unhandledrejection', function(event) {
     },
 
     /**
-     * Request the game to serialize its state. Resolves with state data
-     * or rejects after timeout if the game doesn't support save.
+     * Request the game to serialize its state. Resolves with state data.
+     * Rejects with the reason at once if the page cannot send the game's
+     * state (it holds a function, say), or after the timeout if the game
+     * does not answer, as when it doesn't support save.
      */
     requestSave(timeoutMs = 2000) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           cleanup()
-          reject(new Error('Save not supported'))
+          reject(new Error('The game did not answer'))
         }, timeoutMs)
 
         function onState(msg) {
           if (msg.type === 'stateData') {
             cleanup()
             resolve(msg.data)
+          } else if (msg.type === 'saveFailed') {
+            cleanup()
+            reject(new Error(msg.data?.message))
           }
         }
 

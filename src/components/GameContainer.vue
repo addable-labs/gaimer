@@ -50,8 +50,16 @@ async function onSave() {
         const stateData = await sandbox.requestSave();
         await saveGameState(gameId.value, stateData);
         $q.notify({ message: "Game saved", position: "top", color: "positive", timeout: 1500 });
-    } catch {
-        $q.notify({ message: "Save failed", position: "top", color: "negative", timeout: 2000 });
+    } catch (error) {
+        // Say why: the game's state could not be sent, the game did not
+        // answer, or the state file could not be written. Tauri's file
+        // system rejects with a string.
+        $q.notify({
+            message: `Save failed: ${error.message || String(error)}`,
+            position: "top",
+            color: "negative",
+            timeout: 2000,
+        });
     } finally {
         saving.value = false;
     }
