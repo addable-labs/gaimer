@@ -266,6 +266,19 @@ describe('GameContainer', () => {
       expect(startErrors(webkit)).toEqual([{ message, stack: '', line: 2 }])
     })
 
+    it('reports that the error is after the end of the code, when the page says so', async () => {
+      // A syntax error found after the code, which leaves a brace open, as the
+      // page reports it from WebKit
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const message = "Unexpected keyword 'catch'"
+      sendFromGame(wrapper.find('iframe').element.contentWindow, { type: 'error', data: { message, afterCode: true } })
+
+      expect(startErrors(wrapper)).toEqual([{ message, stack: '', afterCode: true }])
+      // The player sees the error as before
+      await vi.advanceTimersByTimeAsync(100)
+      expect(notifications()).toContain(`Game error: ${message}`)
+    })
+
     it('reports an error in the first 5 seconds after the game is ready', async () => {
       const wrapper = await showGame({ width: 800, height: 600 })
       const game = wrapper.find('iframe').element.contentWindow

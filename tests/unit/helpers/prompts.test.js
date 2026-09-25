@@ -81,4 +81,39 @@ describe('getFixPrompt', () => {
     const prompt = getFixPrompt(game, { message: "Unexpected token ';'", stack: '', line: 2 })
     expect(prompt).toContain("with this error at line 2 of its code:\n\nUnexpected token ';'\n\nFix the error")
   })
+
+  describe('an error the game page found after the end of the code', () => {
+    // The code leaves a brace open
+    const unclosed = { title: 'Pong', controls: 'Arrow keys', code: 'function draw() {\n  fill();\n' }
+    const why =
+      "The game page puts code of its own after the game's code, and the error is found there: the game's code ends before a brace, bracket or parenthesis is closed, or before a string, comment or statement is ended, or it closes more braces than it opens."
+
+    it("says that it is after the code, and why it names code that is not the game's", () => {
+      // As the game page reports it from Chromium
+      const chromium = getFixPrompt(unclosed, {
+        message: "Unexpected token 'catch'",
+        stack: "SyntaxError: Unexpected token 'catch'",
+        afterCode: true,
+      })
+      expect(chromium).toContain(
+        `with this error after the end of its code:\n\nSyntaxError: Unexpected token 'catch'\n\n${why}\n\nFix the error`
+      )
+
+      // And from WebKit, with no stack
+      const webkit = getFixPrompt(unclosed, { message: "Unexpected keyword 'catch'", stack: '', afterCode: true })
+      expect(webkit).toContain(`with this error after the end of its code:\n\nUnexpected keyword 'catch'\n\n${why}\n\nFix the error`)
+    })
+
+    it('is the only error for which the prompt says so', () => {
+      const inCode = [
+        { message: "Unexpected token ';'", stack: "SyntaxError: Unexpected token ';'", line: 2, column: 16 },
+        { message: "Can't find variable: drawBall", stack: 'global code@game.js:3:5' },
+      ]
+      for (const error of inCode) {
+        const prompt = getFixPrompt(game, error)
+        expect(prompt).not.toContain('after the end of its code')
+        expect(prompt).not.toContain('The game page puts code of its own')
+      }
+    })
+  })
 })

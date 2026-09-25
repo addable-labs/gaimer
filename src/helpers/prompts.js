@@ -82,14 +82,25 @@ export const getFixPrompt = (game, error) => {
     const report = error.stack.includes(error.message) ? error.stack : `${error.message}\n${error.stack}`.trim();
     // Where the error is in the game's code, when the game page could tell.
     // A syntax error has no stack to say it, and WebKit gives no column.
-    const place = error.line ? ` at line ${error.line}${error.column ? `, column ${error.column}` : ""} of its code` : "";
+    let place = "";
+    let why = "";
+    if (error.line) {
+        place = ` at line ${error.line}${error.column ? `, column ${error.column}` : ""} of its code`;
+    } else if (error.afterCode) {
+        // The page found the error only after the end of the code, in code
+        // of its own, which the message names ("Unexpected token 'catch'").
+        // Unless the prompt says why, the model looks for it in the game's
+        // code.
+        place = " after the end of its code";
+        why = "\n\nThe game page puts code of its own after the game's code, and the error is found there: the game's code ends before a brace, bracket or parenthesis is closed, or before a string, comment or statement is ended, or it closes more braces than it opens.";
+    }
     return `Here is a game, as JSON:
 
 ${JSON.stringify(game)}
 
 It fails as it starts, with this error${place}:
 
-${report}
+${report}${why}
 
 Fix the error, keep the rest of the game as it is, and reply with the whole game in the same JSON format.`;
 };

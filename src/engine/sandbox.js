@@ -60,9 +60,10 @@ export function createSandbox(container, options = {}) {
 `
 
     // Where the game's code is in its script, for the harness to give the
-    // line and column of an error in the code's own numbering: the lines
-    // before it, the columns before its first line, and its number of lines,
-    // as JavaScript counts them
+    // line and column of an error in the code's own numbering, or to say
+    // that the error is after the code: the lines before it, the columns
+    // before its first line, and its number of lines, as JavaScript counts
+    // them
     const linesBefore = gameScriptStart.split('\n')
     const codeInScript = {
       linesBefore: linesBefore.length - 1,
@@ -124,7 +125,8 @@ function __gaimer_placeInCode(line, column) {
 }
 
 // The report gives the place of the error in the game's code: the one the
-// caller knows, or else that of the innermost frame of its stack in the code
+// caller knows, or else that of the innermost frame of its stack in the code.
+// Or it says that the error is after the end of the code.
 function __gaimer_reportError(error, fallbackMessage, place) {
   var stack = error && error.stack;
   if (typeof stack === 'string') {
@@ -136,7 +138,9 @@ function __gaimer_reportError(error, fallbackMessage, place) {
     });
   }
   var report = { message: (error && error.message) || fallbackMessage, stack: stack };
-  if (place) {
+  if (place && place.afterCode) {
+    report.afterCode = true;
+  } else if (place) {
     report.line = place.line;
     report.column = place.column || null;
   }
@@ -144,10 +148,14 @@ function __gaimer_reportError(error, fallbackMessage, place) {
 }
 // The event gives the place of the error, which is the only place a syntax
 // error has: its stack names none in WebKit or Chromium. WebKit gives its
-// line, but no column.
+// line, but no column. When the code leaves a brace open, say, the parser
+// finds the error only after the end of the code, at the wrapper's "catch":
+// the report says that the error is after the code.
 window.addEventListener('error', function(event) {
   var inGame = event.filename !== __gaimer_harnessUrl && /^data:text\\/javascript/.test(event.filename);
-  __gaimer_reportError(event.error, event.message, inGame ? __gaimer_placeInCode(event.lineno, event.colno) : null);
+  var place = inGame ? __gaimer_placeInCode(event.lineno, event.colno) : null;
+  if (inGame && event.lineno > __gaimer_code.linesBefore + __gaimer_code.lines) place = { afterCode: true };
+  __gaimer_reportError(event.error, event.message, place);
 });
 window.addEventListener('unhandledrejection', function(event) {
   __gaimer_reportError(event.reason, String(event.reason));

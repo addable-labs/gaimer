@@ -17,7 +17,8 @@ function scriptUrls(srcdoc) {
 // throws on a message it cannot copy. With game: true, the game's script
 // runs after the harness, in the same global scope, as in the page. Each
 // script runs under its data: URL, so that a stack trace names it and gives
-// places in it as V8 counts them.
+// places in it as V8 counts them. A syntax error in the game's script goes
+// to the window's error listeners, as in the page.
 function runHarness(srcdoc, { game = false } = {}) {
   const page = parsePage(srcdoc)
   Object.defineProperty(page, 'currentScript', { value: page.querySelector('script') })
@@ -27,8 +28,33 @@ function runHarness(srcdoc, { game = false } = {}) {
   const scope = createContext({ window: win, document: page, parent })
   const [harnessUrl, gameUrl] = scriptUrls(srcdoc)
   runInContext(harnessScript(srcdoc), scope, { filename: harnessUrl })
-  if (game) runInContext(gameScript(srcdoc), scope, { filename: gameUrl })
+  if (game) {
+    try {
+      runInContext(gameScript(srcdoc), scope, { filename: gameUrl })
+    } catch (error) {
+      if (error.name !== 'SyntaxError') throw error
+      win.dispatchEvent(syntaxErrorEvent(error, gameUrl))
+    }
+  }
   return { win, parent, received }
+}
+
+// The error event Chromium fires for a syntax error V8 found in a script,
+// with the error's place in the script. Node writes the place at the top of
+// the error's stack: the script's URL and the line, then that line, with ^
+// under the error. After the error's name and message, the stack goes on
+// with Node's frames, where Chromium's ends.
+function syntaxErrorEvent(error, url) {
+  const [where, , marks] = error.stack.split('\n')
+  if (!where.startsWith(`${url}:`)) throw new Error(`The syntax error's stack gives no place: ${error.stack}`)
+  error.stack = `${error.name}: ${error.message}`
+  return new ErrorEvent('error', {
+    error,
+    message: `Uncaught ${error.stack}`,
+    filename: url,
+    lineno: Number(where.slice(url.length + 1)),
+    colno: marks.indexOf('^') + 1
+  })
 }
 
 // The line and column, counted from 1, at which a text first appears in a
@@ -494,7 +520,7 @@ function drawBall() {
       colno: column
     }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
-      { type: 'error', data: { message, stack: `SyntaxError: ${message}` } },
+      { type: 'error', data: { message, stack: `SyntaxError: ${message}`, afterCode: true } },
       '*'
     )
 
@@ -511,6 +537,79 @@ function drawBall() {
       { type: 'error', data: { message: 'boom', stack: 'Error: boom\n    at harness.js:4:5' } },
       '*'
     )
+  })
+
+  it('the game page says that a syntax error is after the end of the game code when the code leaves a brace open', () => {
+    // The brace takes the wrapper's "}" as its own, and the parser finds the
+    // error at the wrapper's "catch", as V8 does here
+    const srcdoc = loadSrcdoc('function draw() {\n  fill();\n')
+    const { received } = runHarness(srcdoc, { game: true })
+    expect(received).toEqual([
+      {
+        type: 'error',
+        data: { message: "Unexpected token 'catch'", stack: "SyntaxError: Unexpected token 'catch'", afterCode: true }
+      }
+    ])
+
+    // As WebKit reports it, in its words, with no stack and no column
+    const { win, parent } = runHarness(srcdoc)
+    const [, game] = scriptUrls(srcdoc)
+    const message = "Unexpected keyword 'catch'"
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message },
+      message: `SyntaxError: ${message}`,
+      filename: game,
+      lineno: placeOf(gameScript(srcdoc), 'catch').line,
+      colno: 0
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith({ type: 'error', data: { message, afterCode: true } }, '*')
+  })
+
+  it('the game page says the same of other code the parser reads past the end of: a bracket or parenthesis left open, a statement or template literal not ended', () => {
+    // V8 finds each error in the wrapper's line after the code, or, for the
+    // template literal, at the end of the script
+    const cases = [
+      ['var level = [\n  [1, 2],', "Unexpected token ';'"],
+      ['draw(1,', 'missing ) after argument list'],
+      ['if (x > 5', "Unexpected identifier '__gaimer_sendMessage'"],
+      ['var speed = 5;\nvar', "Unexpected token '('"],
+      ['var title = `Score:\n', 'Unexpected end of input']
+    ]
+    sandbox = createSandbox(container)
+    for (const [code, message] of cases) {
+      sandbox.loadGame(code)
+      const { received } = runHarness(container.querySelector('iframe').srcdoc, { game: true })
+      expect(received, code).toEqual([
+        { type: 'error', data: { message, stack: `SyntaxError: ${message}`, afterCode: true } }
+      ])
+    }
+  })
+
+  it('the game page gives the place of a syntax error on the last line of the game code, which is not after the code', () => {
+    const { received } = runHarness(loadSrcdoc('var speed = 5;\nvar x = speed +;'), { game: true })
+    expect(received).toEqual([
+      {
+        type: 'error',
+        data: { message: "Unexpected token ';'", stack: "SyntaxError: Unexpected token ';'", line: 2, column: 16 }
+      }
+    ])
+  })
+
+  it('the game page does not say that an error placed in the wrapper before the game code, or in the harness, is after the code', () => {
+    // The code is on the game script's line 3
+    const srcdoc = loadSrcdoc('draw();')
+    const { win, parent } = runHarness(srcdoc)
+    const [harness, game] = scriptUrls(srcdoc)
+    for (const [filename, lineno] of [[game, 1], [game, 2], [harness, 40]]) {
+      win.dispatchEvent(new ErrorEvent('error', {
+        error: { message: 'boom' },
+        message: 'Error: boom',
+        filename,
+        lineno,
+        colno: 1
+      }))
+      expect(parent.postMessage).toHaveBeenLastCalledWith({ type: 'error', data: { message: 'boom' } }, '*')
+    }
   })
 
   it('the game page reports unhandled promise rejections to the parent', () => {

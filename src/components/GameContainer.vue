@@ -134,6 +134,9 @@ function loadGameScript() {
                     // can tell
                     line: lineOrColumn(msg.data?.line),
                     column: lineOrColumn(msg.data?.column),
+                    // Or that it is after the end of the code, when the
+                    // page says so
+                    afterCode: msg.data?.afterCode === true || undefined,
                 });
             }
         } else if (msg.type === "ready") {

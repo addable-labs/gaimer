@@ -685,6 +685,23 @@ describe('App', () => {
       expect(fixPrompt).toContain(`with this error at line 2, column 16 of its code:\n\nSyntaxError: ${message}\n\n`)
     })
 
+    it('says in the prompt for the fix that a syntax error is after the end of the code, and why', async () => {
+      answerWith(providers.anthropic, { title: 'Pong', code: 'function draw() {\n  fill();\n' })
+      answerWith(providers.anthropic, fixed)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      // The game page reports the syntax error, as from WebKit, found after
+      // the code, at the "catch" of the page's own code
+      const message = "Unexpected keyword 'catch'"
+      await sendFromGame(wrapper, { type: 'error', data: { message, afterCode: true } })
+
+      const fixPrompt = providers.anthropic.generateGame.mock.calls[1][0]
+      expect(fixPrompt).toContain(
+        `with this error after the end of its code:\n\n${message}\n\nThe game page puts code of its own after the game's code, and the error is found there: the game's code ends before a brace, bracket or parenthesis is closed`
+      )
+    })
+
     it('shows the error of a fixed game that fails too, and asks for no second fix', async () => {
       answerWith(providers.anthropic, broken)
       answerWith(providers.anthropic, { title: 'Pong', code: 'drawPaddle()' })
