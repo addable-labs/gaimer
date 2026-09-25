@@ -43,6 +43,11 @@ function endStart() {
     startClock = null;
 }
 
+// A line or column number from the game page, or undefined if it is not one
+function lineOrColumn(value) {
+    return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 async function probeSaveSupport() {
     if (!sandbox) return;
     try {
@@ -125,6 +130,10 @@ function loadGameScript() {
                 emit("startError", {
                     message: String(msg.data?.message || "Unknown error"),
                     stack: typeof msg.data?.stack === "string" ? msg.data.stack : "",
+                    // Where the error is in the game's code, when the page
+                    // can tell
+                    line: lineOrColumn(msg.data?.line),
+                    column: lineOrColumn(msg.data?.column),
                 });
             }
         } else if (msg.type === "ready") {

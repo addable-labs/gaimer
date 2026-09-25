@@ -1,24 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import { createContext, runInContext } from 'vm'
 import { createSandbox } from '../../../src/engine/sandbox.js'
 import { gameScript, harnessScript, parsePage } from '../../game-page.js'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
+
+// The URLs of the game page's scripts: the harness's, then the game script's
+function scriptUrls(srcdoc) {
+  return [...parsePage(srcdoc).querySelectorAll('script')].map((script) => script.getAttribute('src'))
+}
 
 // Runs the game page's harness, its first script, with a stand-in window and
 // parent window, and returns them with the messages the parent received. As
 // in a browser, the parent receives a copy of each message, and postMessage
 // throws on a message it cannot copy. With game: true, the game's script
-// runs after the harness, in the same scope, as in the page.
+// runs after the harness, in the same global scope, as in the page. Each
+// script runs under its data: URL, so that a stack trace names it and gives
+// places in it as V8 counts them.
 function runHarness(srcdoc, { game = false } = {}) {
   const page = parsePage(srcdoc)
   Object.defineProperty(page, 'currentScript', { value: page.querySelector('script') })
   const win = new EventTarget()
   const received = []
   const parent = { postMessage: vi.fn((message) => received.push(structuredClone(message))) }
-  const scripts = game ? [harnessScript(srcdoc), gameScript(srcdoc)] : [harnessScript(srcdoc)]
-  new Function('window', 'document', 'parent', scripts.join('\n'))(win, page, parent)
+  const scope = createContext({ window: win, document: page, parent })
+  const [harnessUrl, gameUrl] = scriptUrls(srcdoc)
+  runInContext(harnessScript(srcdoc), scope, { filename: harnessUrl })
+  if (game) runInContext(gameScript(srcdoc), scope, { filename: gameUrl })
   return { win, parent, received }
+}
+
+// The line and column, counted from 1, at which a text first appears in a
+// script
+function placeOf(script, text) {
+  const index = script.indexOf(text)
+  if (index === -1) throw new Error(`"${text}" is not in the script`)
+  const lines = script.slice(0, index).split('\n')
+  return { line: lines.length, column: lines.at(-1).length + 1 }
 }
 
 // Runs the game's script with a stand-in window and harness, and returns the
@@ -308,32 +327,188 @@ describe('createSandbox', () => {
     )
   })
 
-  it('the game page calls the harness harness.js and the game script game.js in the stack traces it reports', () => {
-    const srcdoc = loadSrcdoc('// game')
+  it('the game page calls the harness harness.js and the game script game.js in the stack traces it reports, with places in the game code', () => {
+    // The game throws on a message the harness passes it
+    const srcdoc = loadSrcdoc(`function tick() {
+  score += bonus;
+}
+window.__gaimer_onMessage = function () {
+  tick();
+};`)
     const { win, parent } = runHarness(srcdoc)
-    const [harness, game] = [...parsePage(srcdoc).querySelectorAll('script')].map((script) => script.getAttribute('src'))
-    // The game throws on a message the harness passes it. As Chromium writes
-    // the stack trace:
+    const [harness, game] = scriptUrls(srcdoc)
+    // A browser gives a frame's place in the game's script, which wraps the
+    // code
+    const inGameScript = (text) => {
+      const { line, column } = placeOf(gameScript(srcdoc), text)
+      return `${game}:${line}:${column}`
+    }
+    // As Chromium writes the stack trace:
     const error = {
       message: 'boom',
-      stack: `Error: boom\n    at tick (${game}:3:19)\n    at window.__gaimer_onMessage (${game}:9:3)\n    at ${harness}:11:14`
+      stack: `Error: boom\n    at tick (${inGameScript('bonus')})\n    at window.__gaimer_onMessage (${inGameScript('tick();')})\n    at ${harness}:11:14`
     }
     win.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: boom' }))
+    // The report gives the place of the innermost frame in the code, as the
+    // error's
     expect(parent.postMessage).toHaveBeenLastCalledWith(
       {
         type: 'error',
         data: {
           message: 'boom',
-          stack: 'Error: boom\n    at tick (game.js:3:19)\n    at window.__gaimer_onMessage (game.js:9:3)\n    at harness.js:11:14'
+          stack: 'Error: boom\n    at tick (game.js:2:12)\n    at window.__gaimer_onMessage (game.js:5:3)\n    at harness.js:11:14',
+          line: 2,
+          column: 12
         }
       },
       '*'
     )
     // As WebKit writes it
-    error.stack = `tick@${game}:3:19\n@${game}:9:3\n@${harness}:11:14`
+    error.stack = `tick@${inGameScript('bonus')}\n@${inGameScript('tick();')}\n@${harness}:11:14`
     win.dispatchEvent(new ErrorEvent('error', { error, message: 'Error: boom' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
-      { type: 'error', data: { message: 'boom', stack: 'tick@game.js:3:19\n@game.js:9:3\n@harness.js:11:14' } },
+      {
+        type: 'error',
+        data: { message: 'boom', stack: 'tick@game.js:2:12\n@game.js:5:3\n@harness.js:11:14', line: 2, column: 12 }
+      },
+      '*'
+    )
+  })
+
+  it('the stack trace of an error the game throws as it starts gives the lines and columns of the game code', () => {
+    // The code's first line calls a function that throws. V8 gives the stack
+    // trace, with each frame's place in its script.
+    const srcdoc = loadSrcdoc(`drawBall();
+function drawBall() {
+  ball.draw(document.getElementById('game-canvas'));
+}`)
+    const { received } = runHarness(srcdoc, { game: true })
+    expect(received).toEqual([
+      {
+        type: 'error',
+        data: { message: 'ball is not defined', stack: expect.any(String), line: 3, column: 3 }
+      }
+    ])
+    // The frames in the code, and the frame of the wrapper that calls the
+    // code, which has no place in it. The test runner's frames follow.
+    expect(received[0].data.stack.split('\n').slice(0, 4)).toEqual([
+      'ReferenceError: ball is not defined',
+      '    at drawBall (game.js:3:3)',
+      '    at game.js:1:1',
+      '    at game.js'
+    ])
+  })
+
+  it("the game page gives a syntax error's line and column in the game code, from the error event", () => {
+    // A syntax error's stack gives no place, in WebKit or Chromium. The error
+    // event gives its place in the game's script: here, of the ";" on the
+    // code's second line.
+    const srcdoc = loadSrcdoc('var speed = 5;\nvar x = speed +;\ndraw(x);')
+    const { win, parent } = runHarness(srcdoc)
+    const [, game] = scriptUrls(srcdoc)
+    const { line, column } = placeOf(gameScript(srcdoc), ';\ndraw')
+    const message = "Unexpected token ';'"
+
+    // As Chromium reports it
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message, stack: `SyntaxError: ${message}` },
+      message: `Uncaught SyntaxError: ${message}`,
+      filename: game,
+      lineno: line,
+      colno: column
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message, stack: `SyntaxError: ${message}`, line: 2, column: 16 } },
+      '*'
+    )
+
+    // As WebKit reports it, with no stack and no column
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message },
+      message: `SyntaxError: ${message}`,
+      filename: game,
+      lineno: line,
+      colno: 0
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message, line: 2, column: null } },
+      '*'
+    )
+  })
+
+  it("the game page gives the column of a syntax error on the game code's first line, which the wrapper indents", () => {
+    const srcdoc = loadSrcdoc('var x = speed +;\ndraw(x);')
+    const { win, parent } = runHarness(srcdoc)
+    const [, game] = scriptUrls(srcdoc)
+    const { line, column } = placeOf(gameScript(srcdoc), ';\ndraw')
+    const message = "Unexpected token ';'"
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message, stack: `SyntaxError: ${message}` },
+      message: `Uncaught SyntaxError: ${message}`,
+      filename: game,
+      lineno: line,
+      colno: column
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message, stack: `SyntaxError: ${message}`, line: 1, column: 16 } },
+      '*'
+    )
+  })
+
+  it('the game page keeps the places in the harness of an error the harness throws', () => {
+    // The game answers saveState with a function in its state, on line 2 of
+    // its code, and postMessage throws in the harness
+    const srcdoc = loadSrcdoc(`window.__gaimer_onMessage = function (msg) {
+  __gaimer_sendMessage('stateData', { update: function () {} });
+};`)
+    const { win, received } = runHarness(srcdoc, { game: true })
+    win.dispatchEvent(new MessageEvent('message', { data: { type: 'saveState', data: {} } }))
+
+    const { stack, line, column } = received[1].data
+    const inHarness = (text) => {
+      const place = placeOf(harnessScript(srcdoc), text)
+      return `harness.js:${place.line}:${place.column}`
+    }
+    // Its frames in the harness keep their places there, and the game's
+    // frame between them has its place in the code. The report gives that
+    // place, where the game called the harness.
+    expect(stack).toContain(`at __gaimer_sendMessage (${inHarness('postMessage({')})\n`)
+    expect(stack).toContain('__gaimer_onMessage (game.js:2:3)\n')
+    expect(stack).toContain(`<anonymous> (${inHarness('__gaimer_onMessage(event.data)')})\n`)
+    expect({ line, column }).toEqual({ line: 2, column: 3 })
+  })
+
+  it('the game page gives no place in the game code for an error placed in the harness, or in the wrapper after the code', () => {
+    // The code leaves a function open, and the parser finds the error only
+    // after it, at the wrapper's "catch"
+    const srcdoc = loadSrcdoc('function draw() {\n  fill();\n')
+    const { win, parent } = runHarness(srcdoc)
+    const [harness, game] = scriptUrls(srcdoc)
+    const { line, column } = placeOf(gameScript(srcdoc), 'catch')
+    const message = "Unexpected token 'catch'"
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message, stack: `SyntaxError: ${message}` },
+      message: `Uncaught SyntaxError: ${message}`,
+      filename: game,
+      lineno: line,
+      colno: column
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message, stack: `SyntaxError: ${message}` } },
+      '*'
+    )
+
+    // An error the harness throws on its line 4, which would be the code's
+    // line 2 if it were in the game's script
+    win.dispatchEvent(new ErrorEvent('error', {
+      error: { message: 'boom', stack: `Error: boom\n    at ${harness}:4:5` },
+      message: 'Uncaught Error: boom',
+      filename: harness,
+      lineno: 4,
+      colno: 5
+    }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'boom', stack: 'Error: boom\n    at harness.js:4:5' } },
       '*'
     )
   })
@@ -369,11 +544,12 @@ describe('createSandbox', () => {
     win.dispatchEvent(new MessageEvent('message', { data: { type: 'saveState', data: {} } }))
 
     // The error does not stop the game's code. The parent gets it as a game
-    // error, and as the answer to saveState.
+    // error, at the line of the code that sent the state, and as the answer
+    // to saveState.
     expect(win.answered).toBe(true)
     const message = 'function () {} could not be cloned.'
     expect(received.slice(1)).toEqual([
-      { type: 'error', data: { message, stack: expect.stringContaining(message) } },
+      { type: 'error', data: { message, stack: expect.stringContaining(message), line: 3, column: 5 } },
       { type: 'saveFailed', data: { message } }
     ])
   })

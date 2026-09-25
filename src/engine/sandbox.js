@@ -44,6 +44,32 @@ export function createSandbox(container, options = {}) {
   window.addEventListener('message', handleMessage)
 
   function buildSrcdoc(gameCode) {
+    // The game's code runs in an IIFE, in a script of its own: a syntax error
+    // stops only that script, and the harness reports it. In the try block
+    // the code stays in sloppy mode, even if it starts with "use strict".
+    // The catch reports an error thrown while the game starts.
+    const gameScriptStart = `(function() {
+  try {
+    `
+    const gameScript = `${gameScriptStart}${gameCode}
+    __gaimer_sendMessage('ready', {});
+  } catch (e) {
+    __gaimer_reportError(e, String(e));
+  }
+})();
+`
+
+    // Where the game's code is in its script, for the harness to give the
+    // line and column of an error in the code's own numbering: the lines
+    // before it, the columns before its first line, and its number of lines,
+    // as JavaScript counts them
+    const linesBefore = gameScriptStart.split('\n')
+    const codeInScript = {
+      linesBefore: linesBefore.length - 1,
+      columnsBefore: linesBefore[linesBefore.length - 1].length,
+      lines: gameCode.split(/\r\n|[\n\r\u2028\u2029]/).length,
+    }
+
     // The harness, the page's first script, runs before the game's script
     const harness = `// Prevent default touch behaviors (scrolling, zooming) on the canvas
 var __canvas = document.getElementById('game-canvas');
@@ -82,39 +108,50 @@ function __gaimer_sendMessage(type, data) {
 // runs after this one, and errors the game throws later (game loop, input
 // handlers, promises). Stack traces quote a script's whole data: URL in each
 // of its frames: call this script harness.js and the game's game.js instead.
+// The game's script wraps the game's code, so a place in game.js is given
+// as its line and column in the code, and a place in the wrapper with
+// neither. A place in harness.js stays as it is.
 var __gaimer_harnessUrl = document.currentScript.src;
-function __gaimer_reportError(error, fallbackMessage) {
+var __gaimer_code = ${JSON.stringify(codeInScript)};
+
+// The line and column in the game's code of a place in the game's script,
+// or null for a place in the wrapper. A column of 0 is not known.
+function __gaimer_placeInCode(line, column) {
+  line -= __gaimer_code.linesBefore;
+  if (!(line >= 1 && line <= __gaimer_code.lines)) return null;
+  if (line === 1 && column) column -= __gaimer_code.columnsBefore;
+  return { line: line, column: column };
+}
+
+// The report gives the place of the error in the game's code: the one the
+// caller knows, or else that of the innermost frame of its stack in the code
+function __gaimer_reportError(error, fallbackMessage, place) {
   var stack = error && error.stack;
   if (typeof stack === 'string') {
-    stack = stack.replace(/data:text\\/javascript[^:]*/g, function(url) {
-      return url === __gaimer_harnessUrl ? 'harness.js' : 'game.js';
+    stack = stack.replace(/(data:text\\/javascript[^:]*)(?::(\\d+):(\\d+))?/g, function(match, url, line, column) {
+      if (url === __gaimer_harnessUrl) return 'harness.js' + match.slice(url.length);
+      var frame = line && __gaimer_placeInCode(+line, +column);
+      place = place || frame;
+      return frame ? 'game.js:' + frame.line + ':' + frame.column : 'game.js';
     });
   }
-  __gaimer_sendMessage('error', {
-    message: (error && error.message) || fallbackMessage,
-    stack: stack
-  });
+  var report = { message: (error && error.message) || fallbackMessage, stack: stack };
+  if (place) {
+    report.line = place.line;
+    report.column = place.column || null;
+  }
+  __gaimer_sendMessage('error', report);
 }
+// The event gives the place of the error, which is the only place a syntax
+// error has: its stack names none in WebKit or Chromium. WebKit gives its
+// line, but no column.
 window.addEventListener('error', function(event) {
-  __gaimer_reportError(event.error, event.message);
+  var inGame = event.filename !== __gaimer_harnessUrl && /^data:text\\/javascript/.test(event.filename);
+  __gaimer_reportError(event.error, event.message, inGame ? __gaimer_placeInCode(event.lineno, event.colno) : null);
 });
 window.addEventListener('unhandledrejection', function(event) {
   __gaimer_reportError(event.reason, String(event.reason));
 });
-`
-
-    // The game's code runs in an IIFE, in a script of its own: a syntax error
-    // stops only that script, and the harness reports it. In the try block
-    // the code stays in sloppy mode, even if it starts with "use strict".
-    // The catch reports an error thrown while the game starts.
-    const gameScript = `(function() {
-  try {
-    ${gameCode}
-    __gaimer_sendMessage('ready', {});
-  } catch (e) {
-    __gaimer_reportError(e, String(e));
-  }
-})();
 `
 
     // The page loads both its scripts from data: URLs, and has no inline

@@ -65,4 +65,20 @@ describe('getFixPrompt', () => {
     const prompt = getFixPrompt(game, { message: "Unexpected token ')'", stack: '' })
     expect(prompt).toContain("with this error:\n\nUnexpected token ')'\n\nFix the error")
   })
+
+  it("names the line and column of the error in the game's code, when the game page gives them", () => {
+    // A syntax error, as the game page reports it from Chromium
+    const prompt = getFixPrompt(game, {
+      message: "Unexpected token ';'",
+      stack: "SyntaxError: Unexpected token ';'",
+      line: 2,
+      column: 16,
+    })
+    expect(prompt).toContain("with this error at line 2, column 16 of its code:\n\nSyntaxError: Unexpected token ';'\n\nFix the error")
+  })
+
+  it('names the line alone when the game page gives no column, as for a syntax error from WebKit', () => {
+    const prompt = getFixPrompt(game, { message: "Unexpected token ';'", stack: '', line: 2 })
+    expect(prompt).toContain("with this error at line 2 of its code:\n\nUnexpected token ';'\n\nFix the error")
+  })
 })

@@ -80,11 +80,14 @@ export const getFixPrompt = (game, error) => {
     // A stack from Chromium starts with the error's message, one from WebKit
     // holds only the calls
     const report = error.stack.includes(error.message) ? error.stack : `${error.message}\n${error.stack}`.trim();
+    // Where the error is in the game's code, when the game page could tell.
+    // A syntax error has no stack to say it, and WebKit gives no column.
+    const place = error.line ? ` at line ${error.line}${error.column ? `, column ${error.column}` : ""} of its code` : "";
     return `Here is a game, as JSON:
 
 ${JSON.stringify(game)}
 
-It fails as it starts, with this error:
+It fails as it starts, with this error${place}:
 
 ${report}
 

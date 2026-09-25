@@ -246,6 +246,26 @@ describe('GameContainer', () => {
       expect(notifications()).toContain("Game error: Unexpected token ')'")
     })
 
+    it("reports where the error is in the game's code, when the page can tell", async () => {
+      const message = "Unexpected token ';'"
+      // A syntax error on the code's line 2, as the page reports it from
+      // Chromium
+      const chromium = await showGame({ width: 800, height: 600 })
+      sendFromGame(chromium.find('iframe').element.contentWindow, {
+        type: 'error',
+        data: { message, stack: `SyntaxError: ${message}`, line: 2, column: 16 },
+      })
+      expect(startErrors(chromium)).toEqual([{ message, stack: `SyntaxError: ${message}`, line: 2, column: 16 }])
+
+      // And from WebKit, which gives no column
+      const webkit = await showGame({ width: 800, height: 600 })
+      sendFromGame(webkit.find('iframe').element.contentWindow, {
+        type: 'error',
+        data: { message, line: 2, column: null },
+      })
+      expect(startErrors(webkit)).toEqual([{ message, stack: '', line: 2 }])
+    })
+
     it('reports an error in the first 5 seconds after the game is ready', async () => {
       const wrapper = await showGame({ width: 800, height: 600 })
       const game = wrapper.find('iframe').element.contentWindow

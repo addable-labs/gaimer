@@ -667,6 +667,24 @@ describe('App', () => {
       expect(useAppStore().gameList).toEqual([expect.objectContaining({ id: fixedId, title: 'Pong' })])
     })
 
+    it('names the line and column of a syntax error in the prompt for the fix', async () => {
+      answerWith(providers.anthropic, { title: 'Pong', code: 'var speed = 5;\nvar x = speed +;' })
+      answerWith(providers.anthropic, fixed)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      // The game page reports the syntax error, as from Chromium, with its
+      // place in the code
+      const message = "Unexpected token ';'"
+      await sendFromGame(wrapper, {
+        type: 'error',
+        data: { message, stack: `SyntaxError: ${message}`, line: 2, column: 16 },
+      })
+
+      const fixPrompt = providers.anthropic.generateGame.mock.calls[1][0]
+      expect(fixPrompt).toContain(`with this error at line 2, column 16 of its code:\n\nSyntaxError: ${message}\n\n`)
+    })
+
     it('shows the error of a fixed game that fails too, and asks for no second fix', async () => {
       answerWith(providers.anthropic, broken)
       answerWith(providers.anthropic, { title: 'Pong', code: 'drawPaddle()' })
