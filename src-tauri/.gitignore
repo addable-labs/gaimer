@@ -6,4 +6,11 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
-/gen/
+# The iOS project, made by `tauri ios init`, except its app icon set: init
+# leaves files that exist alone, so the app gets the icons kept here
+/gen/*
+!/gen/apple/
+/gen/apple/*
+!/gen/apple/Assets.xcassets/
+/gen/apple/Assets.xcassets/*
+!/gen/apple/Assets.xcassets/AppIcon.appiconset/

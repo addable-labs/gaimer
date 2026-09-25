@@ -139,6 +139,18 @@ jobs:
       - name: Initialize iOS project
         run: yarn tauri ios init
 
+      # The app icon set is kept in git (see src-tauri/.gitignore): init must
+      # leave it as it is, and the App Store refuses icons with an alpha channel
+      - name: Check the iOS app icons
+        run: |
+          icons=src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
+          changed=$(git status --porcelain --ignored -- "$icons")
+          if [ -n "$changed" ]; then echo "tauri ios init changed the icon set:"; echo "$changed"; exit 1; fi
+          for f in "$icons"/*.png; do
+            sips -g hasAlpha "$f" | grep -q 'hasAlpha: no' || { echo "$f has an alpha channel"; exit 1; }
+          done
+          echo "$(ls "$icons"/*.png | wc -l) icons, none with an alpha channel"
+
       - name: Build iOS (simulator)
         run: yarn tauri ios build --target aarch64-sim
 

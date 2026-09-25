@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Gaimer</title>
+  <!-- The logo drawn for 32 px: the same shapes, each moved to whole pixels. Used for the 32 px Windows and Linux icons and the web page's icon. -->
+  <!-- a game controller, with the D-pad cut out -->
+  <path fill="#83F35D" fill-rule="evenodd" d="M10.788 9L21.212 9C24.935 9 26.796 10.603 27.417 13.487C28.037 16.372 28.347 19.797 27.417 21.504C26.486 23.211 24.004 23.495 22.763 22.357C21.832 21.504 21.212 19.797 19.351 19.37C18.11 19.085 16.869 19 16 19C15.131 19 13.89 19.085 12.649 19.37C10.788 19.797 10.168 21.504 9.237 22.357C7.996 23.495 5.514 23.211 4.583 21.504C3.653 19.797 3.963 16.372 4.583 13.487C5.204 10.603 7.065 9 10.788 9ZM8 11.4A0.5 0.4 0 0 1 8.5 11L10.5 11A0.5 0.4 0 0 1 11 11.4L11 13L12.6 13A0.4 0.5 0 0 1 13 13.5L13 15.5A0.4 0.5 0 0 1 12.6 16L11 16L11 17.6A0.5 0.4 0 0 1 10.5 18L8.5 18A0.5 0.4 0 0 1 8 17.6L8 16L6.4 16A0.4 0.5 0 0 1 6 15.5L6 13.5A0.4 0.5 0 0 1 6.4 13L8 13Z"/>
+  <!-- an AI spark where the buttons would be -->
+  <path fill="#FF6F00" d="M22.5 11Q23.2 13.8 26 14.5Q23.2 15.2 22.5 18Q21.8 15.2 19 14.5Q21.8 13.8 22.5 11Z"/>
+</svg>
