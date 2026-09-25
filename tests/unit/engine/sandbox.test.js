@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createSandbox } from '../../../src/engine/sandbox.js'
+import { gameScript, parsePage } from '../../game-page.js'
+import tauriConfig from '../../../src-tauri/tauri.conf.json'
 
 // Runs the game page's harness, its first script, with a stand-in window and
 // parent window, and returns them
@@ -11,16 +13,46 @@ function runHarness(page) {
   return { win, parent }
 }
 
+// Runs the game's script with a stand-in window and harness, and returns the
+// window and what the script sent. An error thrown while the game starts
+// fails the test.
+function runGame(srcdoc) {
+  const win = {}
+  const sendMessage = vi.fn()
+  const reportError = (error) => {
+    throw error
+  }
+  new Function('window', '__gaimer_sendMessage', '__gaimer_reportError', gameScript(srcdoc))(
+    win,
+    sendMessage,
+    reportError
+  )
+  return { win, sendMessage }
+}
+
+// The sources a Content Security Policy gives one of its directives
+function sources(policy, directive) {
+  const found = policy
+    .split(';')
+    .map((part) => part.trim().split(/\s+/))
+    .find(([name]) => name === directive)
+  return found ? found.slice(1) : []
+}
+
 describe('createSandbox', () => {
   let container
   let sandbox
 
-  // Loads the game and returns the page it writes into the iframe, parsed
-  function loadPage(gameCode) {
+  // Loads the game and returns the page it writes into the iframe
+  function loadSrcdoc(gameCode) {
     sandbox = createSandbox(container)
     sandbox.loadGame(gameCode)
-    const iframe = container.querySelector('iframe')
-    return new DOMParser().parseFromString(iframe.srcdoc, 'text/html')
+    return container.querySelector('iframe').srcdoc
+  }
+
+  // Loads the game and returns the page it writes into the iframe, parsed
+  function loadPage(gameCode) {
+    return parsePage(loadSrcdoc(gameCode))
   }
 
   beforeEach(() => {
@@ -105,7 +137,7 @@ describe('createSandbox', () => {
     const gameCode = 'console.log("hello")'
     sandbox.loadGame(gameCode)
     const iframe = container.querySelector('iframe')
-    expect(iframe.srcdoc).toContain(gameCode)
+    expect(gameScript(iframe.srcdoc)).toContain(gameCode)
   })
 
   it('loadGame() includes a canvas element in srcdoc', () => {
@@ -119,7 +151,7 @@ describe('createSandbox', () => {
     sandbox = createSandbox(container)
     sandbox.loadGame('let x = 1;')
     const iframe = container.querySelector('iframe')
-    expect(iframe.srcdoc).toContain('(function()')
+    expect(gameScript(iframe.srcdoc)).toContain('(function()')
   })
 
   it('postMessage() sends messages to iframe', () => {
@@ -163,18 +195,65 @@ describe('createSandbox', () => {
     sandbox.loadGame('// game 1')
     sandbox.loadGame('// game 2')
     const iframe = container.querySelector('iframe')
-    expect(iframe.srcdoc).toContain('// game 2')
-    expect(iframe.srcdoc).not.toContain('// game 1')
+    expect(gameScript(iframe.srcdoc)).toContain('// game 2')
+    expect(gameScript(iframe.srcdoc)).not.toContain('// game 1')
   })
 
   it('loadGame() puts the game code in a script of its own, after the harness', () => {
-    const page = loadPage('let x = ;')
-    const scripts = page.querySelectorAll('script')
+    const srcdoc = loadSrcdoc('let x = ;')
+    const scripts = parsePage(srcdoc).querySelectorAll('script')
     expect(scripts).toHaveLength(2)
     // The game's syntax error leaves the harness able to run and report it
     expect(scripts[0].textContent).not.toContain('let x = ;')
     expect(() => new Function(scripts[0].textContent)).not.toThrow()
-    expect(scripts[1].textContent).toContain('let x = ;')
+    expect(gameScript(srcdoc)).toContain('let x = ;')
+  })
+
+  it('loadGame() loads the game script from a data: URL, which holds the game code as written', () => {
+    const gameCode = 'window.title = "Café 🎮"; window.tag = "<b>"'
+    const srcdoc = loadSrcdoc(gameCode)
+    const script = parsePage(srcdoc).querySelectorAll('script')[1]
+    expect(script.getAttribute('src')).toEqual(
+      expect.stringMatching(/^data:text\/javascript;charset=utf-8;base64,[A-Za-z0-9+/]+=*$/)
+    )
+    expect(script.textContent).toBe('')
+    // The page's HTML does not hold the game code
+    expect(srcdoc).not.toContain('Café')
+    expect(gameScript(srcdoc)).toContain(gameCode)
+    const { win, sendMessage } = runGame(srcdoc)
+    expect(win).toEqual({ title: 'Café 🎮', tag: '<b>' })
+    expect(sendMessage).toHaveBeenCalledWith('ready', {})
+  })
+
+  it("the game page's policy lets it load scripts from data: URLs, and allows nothing else new", () => {
+    const policy = loadPage('// game')
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')
+      .getAttribute('content')
+    expect(policy).toBe(
+      "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline'; img-src blob: data:;"
+    )
+  })
+
+  it("the window's policy, which the game page inherits, lets the page run its scripts", () => {
+    // A page set through srcdoc takes a copy of its parent's policy, and each
+    // of its scripts must pass both policies. Tauri sends the window's policy
+    // with the built app's pages.
+    const windowPolicy = tauriConfig.app.security.csp
+    expect(sources(windowPolicy, 'script-src')).toEqual(
+      expect.arrayContaining(["'unsafe-inline'", 'data:'])
+    )
+  })
+
+  it('"<!--" and "<script" in the game code stay out of the page\'s HTML, so they cannot hide the end of its script', () => {
+    // In an inline script, "<!--" and then "<script" make the HTML parser read
+    // past the script's end tag, and the script never runs. happy-dom's parser
+    // does not do this, so the test reads the page's HTML.
+    const srcdoc = loadSrcdoc('window.tag = "<!--<script>"')
+    expect(srcdoc).not.toContain('<!--')
+    expect(srcdoc.match(/<script/gi)).toHaveLength(2)
+    const { win, sendMessage } = runGame(srcdoc)
+    expect(win.tag).toBe('<!--<script>')
+    expect(sendMessage).toHaveBeenCalledWith('ready', {})
   })
 
   it('the game page reports errors to the parent', () => {
@@ -185,10 +264,30 @@ describe('createSandbox', () => {
       { type: 'error', data: { message: 'boom', stack: error.stack } },
       '*'
     )
-    // WebKit gives the sandboxed page no error object, only a message
+    // An error event can carry only a message, as WebKit's "Script error."
+    // for an error in an inline script does
     win.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
       { type: 'error', data: { message: 'Script error.', stack: null } },
+      '*'
+    )
+  })
+
+  it('the game page calls the game script game.js in the stack traces it reports', () => {
+    const { win, parent } = runHarness(loadPage('// game'))
+    const url = 'data:text/javascript;charset=utf-8;base64,KGZ1bmN0aW9uKCkgewogIHRyeSB7Cg=='
+    // As Chromium writes a stack trace
+    const error = { message: 'boom', stack: `Error: boom\n    at tick (${url}:3:19)\n    at ${url}:9:3` }
+    win.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: boom' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'boom', stack: 'Error: boom\n    at tick (game.js:3:19)\n    at game.js:9:3' } },
+      '*'
+    )
+    // As WebKit writes it
+    error.stack = `tick@${url}:3:19\n@${url}:9:3`
+    win.dispatchEvent(new ErrorEvent('error', { error, message: 'Error: boom' }))
+    expect(parent.postMessage).toHaveBeenLastCalledWith(
+      { type: 'error', data: { message: 'boom', stack: 'tick@game.js:3:19\n@game.js:9:3' } },
       '*'
     )
   })
@@ -209,14 +308,13 @@ describe('createSandbox', () => {
   })
 
   it('loadGame() escapes </script in the game code, so it cannot end the script early', () => {
-    const page = loadPage('window.tags = ["</script><p>", "</SCRIPT >"]')
+    const srcdoc = loadSrcdoc('window.tags = ["</script><p>", "</SCRIPT >"]')
+    const page = parsePage(srcdoc)
     const scripts = page.querySelectorAll('script')
     expect(scripts).toHaveLength(2)
     expect(page.querySelector('p')).toBeNull()
     // The escaped code means the same as the game's
-    const win = {}
-    const sendMessage = vi.fn()
-    new Function('window', '__gaimer_sendMessage', scripts[1].textContent)(win, sendMessage)
+    const { win, sendMessage } = runGame(srcdoc)
     expect(win.tags).toEqual(['</script><p>', '</SCRIPT >'])
     expect(sendMessage).toHaveBeenCalledWith('ready', {})
   })

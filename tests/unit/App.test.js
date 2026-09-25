@@ -10,6 +10,7 @@ import GameContainer from '../../src/components/GameContainer.vue'
 import { listGames, loadGame as loadGameFromFS } from '../../src/helpers/game-storage.js'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
+import { gameScript } from '../game-page.js'
 
 // Stand-ins for the two providers, so that no test runs the Claude CLI or calls OpenAI
 const providers = vi.hoisted(() => ({}))
@@ -149,9 +150,9 @@ function holdGameRead() {
   return () => finish()
 }
 
-// The page of the game running on screen, which holds the game's code
-function gamePage(wrapper) {
-  return wrapper.find('iframe').element.srcdoc
+// The script of the game running on screen, which holds the game's code
+function gameOnScreen(wrapper) {
+  return gameScript(wrapper.find('iframe').element.srcdoc)
 }
 
 enableAutoUnmount(afterEach)
@@ -392,17 +393,17 @@ describe('App', () => {
       const finishGenerating = holdClaudeGeneration()
       await generate()
       await openGame(wrapper, '100')
-      expect(gamePage(wrapper)).toContain('tetris()')
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
       await openGame(wrapper, '200')
-      expect(gamePage(wrapper)).toContain('snake()')
+      expect(gameOnScreen(wrapper)).toContain('snake()')
 
       finishGenerating()
       await flushPromises()
 
       // The new game, whose code is draw(), runs in place of the game that was open
       expect(wrapper.findAll('iframe')).toHaveLength(1)
-      expect(gamePage(wrapper)).toContain('draw()')
-      expect(gamePage(wrapper)).not.toContain('snake()')
+      expect(gameOnScreen(wrapper)).toContain('draw()')
+      expect(gameOnScreen(wrapper)).not.toContain('snake()')
     })
 
     it('shows the game opened last when an earlier one takes longer to read', async () => {

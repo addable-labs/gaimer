@@ -44,12 +44,33 @@ export function createSandbox(container, options = {}) {
   window.addEventListener('message', handleMessage)
 
   function buildSrcdoc(gameCode) {
+    // The game's code runs in an IIFE, in a script of its own: a syntax error
+    // stops only that script, and the harness reports it. In the try block
+    // the code stays in sloppy mode, even if it starts with "use strict".
+    // The catch reports an error thrown while the game starts.
+    const gameScript = `(function() {
+  try {
+    ${escapeScriptEnd(gameCode)}
+    __gaimer_sendMessage('ready', {});
+  } catch (e) {
+    __gaimer_reportError(e, String(e));
+  }
+})();
+`
+
+    // The page loads the game's script from a data: URL, for two reasons.
+    // The page's origin is opaque, and WebKit reports an error thrown in one
+    // of its inline scripts only as "Script error.", while it reports one
+    // from a data: URL script in full. And the game code stays away from the
+    // HTML parser: "<!--" and then "<script" in it, even in a string, would
+    // make the parser read past an inline script's end tag, and the script
+    // would never run.
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline'; img-src blob: data:;">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; touch-action: none; }
@@ -81,12 +102,13 @@ function __gaimer_sendMessage(type, data) {
 
 // Report errors to the parent: a syntax error in the game script below,
 // and errors the game throws later (game loop, input handlers, promises).
-// WebKit gives a sandboxed page no details of an error event, only
-// "Script error."
+// Stack traces quote the game script's whole data: URL in each frame: call
+// it game.js instead.
 function __gaimer_reportError(error, fallbackMessage) {
+  var stack = error && error.stack;
   __gaimer_sendMessage('error', {
     message: (error && error.message) || fallbackMessage,
-    stack: error && error.stack
+    stack: typeof stack === 'string' ? stack.replace(/data:text\\/javascript[^:]*/g, 'game.js') : stack
   });
 }
 window.addEventListener('error', function(event) {
@@ -96,20 +118,7 @@ window.addEventListener('unhandledrejection', function(event) {
   __gaimer_reportError(event.reason, String(event.reason));
 });
 </script>
-<script>
-// Execute game code in IIFE, in a script of its own: a syntax error stops
-// only this script, and the harness above reports it. The catch keeps the
-// message of an error thrown while the game starts, which WebKit would
-// hide from the error listener.
-(function() {
-  try {
-    ${escapeScriptEnd(gameCode)}
-    __gaimer_sendMessage('ready', {});
-  } catch (e) {
-    __gaimer_reportError(e, String(e));
-  }
-})();
-</script>
+<script src="data:text/javascript;charset=utf-8;base64,${toBase64(gameScript)}"></script>
 </body>
 </html>`
   }
@@ -203,4 +212,14 @@ window.addEventListener('unhandledrejection', function(event) {
 // regular expressions and comments.
 function escapeScriptEnd(code) {
   return code.replace(/<\/(script)/gi, '<\\/$1')
+}
+
+// Base64 of the UTF-8 bytes of a string. btoa() takes only characters of a
+// single byte.
+function toBase64(text) {
+  let bytes = ''
+  for (const byte of new TextEncoder().encode(text)) {
+    bytes += String.fromCharCode(byte)
+  }
+  return btoa(bytes)
 }

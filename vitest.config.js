@@ -6,6 +6,11 @@ export default defineConfig({
   plugins: [vue(), quasar()],
   test: {
     environment: 'happy-dom',
+    // happy-dom runs no scripts. Without this it logs an error for each
+    // script it does not load from a src, as on every game page.
+    environmentOptions: {
+      happyDOM: { settings: { handleDisabledFileLoadingAsSuccess: true } }
+    },
     globals: true,
     include: ['tests/unit/**/*.test.js', 'tests/integration/**/*.test.js'],
     coverage: {
