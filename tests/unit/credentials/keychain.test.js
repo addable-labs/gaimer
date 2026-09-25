@@ -76,6 +76,13 @@ describe('the API key in the system keychain', () => {
     })
   })
 
+  it('is loaded from the keychain when the app starts', async () => {
+    rust.keychain.set('openai:apiKey', 'sk-saved')
+    const store = await start()
+    expect(store.apiKey).toBe('sk-saved')
+    expect(store.apiKeyError).toBe('')
+  })
+
   it('is saved in the keychain and loaded on the next start', async () => {
     await start()
     await saveKey(await openSettings(), 'sk-new')

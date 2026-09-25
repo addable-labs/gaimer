@@ -56,7 +56,7 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         return models;
     }
 
-    // Load API key from credential store (and migrate from localStorage if needed)
+    // Load API key from credential store
     async function init() {
         try {
             await credentials.importOldVault();
@@ -65,21 +65,9 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         }
         try {
             const stored = await credentials.get("openai", "apiKey");
-            if (stored) {
-                apiKey.value = stored;
-            } else {
-                // One-time migration from localStorage
-                const legacy = loadStateFromLocalStorage("apiKey");
-                if (legacy) {
-                    apiKey.value = legacy;
-                    await credentials.set("openai", "apiKey", legacy);
-                    localStorage.removeItem("apiKey");
-                }
-            }
+            if (stored) apiKey.value = stored;
         } catch (err) {
             apiKeyError.value = `Could not load the API key from the system keychain: ${err}`;
-            const legacy = loadStateFromLocalStorage("apiKey");
-            if (legacy) apiKey.value = legacy;
         }
         apiKeyReady.value = true;
     }
