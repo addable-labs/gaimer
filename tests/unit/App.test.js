@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { Quasar, QBtn, QBtnToggle, QSpinnerGears } from 'quasar'
+import { Quasar, QBtn, QBtnToggle, QDrawer, QItem, QSpinnerGears } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
@@ -839,6 +839,41 @@ describe('App', () => {
       finishGenerating()
       await flushPromises()
       expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
+    })
+
+    // A click in the drawer closes it, and a click on a game in the list opens
+    // the game: a click on a game's rules button does neither
+    it("shows a game's rules from the list without opening the game or closing the list", async () => {
+      files.set(`${gamesFolder}/100-tetris.json`, JSON.stringify({
+        id: '100',
+        title: 'Tetris',
+        code: 'tetris()',
+        prompt: '"A game of Tetris"',
+        rules: 'Clear lines to score',
+        controls: 'Arrow keys',
+      }))
+      const wrapper = await startApp({ Settings: true, GameList: false }, { attachTo: document.body })
+      await wrapper.find('[aria-label="Menu"]').trigger('click')
+      const drawer = wrapper.findComponent(QDrawer)
+      expect(drawer.props('modelValue')).toBe(true)
+
+      const tetris = wrapper.findAllComponents(QItem).find((item) => item.text().includes('Tetris'))
+      await tetris.findAllComponents(QBtn).find((btn) => btn.props('icon') === 'mdi-information').trigger('click')
+      await flushPromises()
+
+      expect({
+        rulesShown: document.querySelector('.q-dialog')?.textContent.includes('Clear lines to score'),
+        drawerOpen: drawer.props('modelValue'),
+        gamesRead: loadGameFromFS.mock.calls.length,
+        openGame: useAppStore().loadedGame,
+      }).toEqual({ rulesShown: true, drawerOpen: true, gamesRead: 0, openGame: null })
+
+      // With the rules closed, the list is still open, and no game is
+      await button(wrapper, 'Close').trigger('click')
+      await flushPromises()
+      expect(drawer.props('modelValue')).toBe(true)
+      expect(loadGameFromFS).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
     })
   })
 

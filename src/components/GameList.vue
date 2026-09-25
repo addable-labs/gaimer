@@ -29,7 +29,13 @@
             </q-item-section>
             <q-item-section side>
                 <div class="text-grey-8 q-gutter-xs">
-                    <q-btn dense flat icon="mdi-information" size="sm">
+                    <q-btn
+                        dense
+                        flat
+                        icon="mdi-information"
+                        size="sm"
+                        @click.stop="showInfo(game, 'rules')"
+                    >
                         <q-tooltip
                             :delay="500"
                             max-width="300px"
@@ -39,7 +45,13 @@
                             {{ game.rules }}
                         </q-tooltip>
                     </q-btn>
-                    <q-btn dense flat icon="mdi-gamepad-outline" size="sm">
+                    <q-btn
+                        dense
+                        flat
+                        icon="mdi-gamepad-outline"
+                        size="sm"
+                        @click.stop="showInfo(game, 'controls')"
+                    >
                         <q-tooltip
                             :delay="500"
                             max-width="300px"
@@ -69,6 +81,8 @@
             </q-item-section>
         </q-item>
         <q-separator spaced />
+
+        <GameInfoDialog v-model="infoShown" :info="shownInfo" />
 
         <q-dialog v-model="confirmingDelete">
             <q-card style="width: 400px; max-width: 92vw">
@@ -106,9 +120,24 @@ import { ref } from "vue";
 import { deleteGame as deleteGameFromFS } from "../helpers/game-storage.js";
 import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
+import GameInfoDialog, { gameInfo } from "./GameInfoDialog.vue";
 const emit = defineEmits(["loadGame", "gameDeleted"]);
 const appStore = useAppStore();
 const { gameList, loadedGame } = storeToRefs(appStore);
+
+// The rules or the controls of a game in the list, shown in a dialog while
+// infoShown is true. They stay in it while it fades out.
+const shownInfo = ref(null);
+const infoShown = ref(false);
+
+// Shows a game's rules or controls in the dialog the buttons below a game
+// show them in. The click goes no further: the game is not opened, and the
+// drawer stays open behind the dialog. Holding the mouse over a button still
+// shows the text in a tooltip.
+function showInfo(game, kind) {
+    shownInfo.value = gameInfo(game)[kind];
+    infoShown.value = true;
+}
 
 // The game the user asked to delete. It is kept after the dialog closes, so
 // that its title stays in the dialog while the dialog fades out.

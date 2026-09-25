@@ -4,6 +4,7 @@ import { useQuasar } from "quasar";
 import { useAppStore } from "../stores/app-store.js";
 import { createSandbox } from "../engine/sandbox.js";
 import { saveGameState, loadGameState } from "../helpers/game-storage.js";
+import GameInfoDialog, { gameInfo } from "./GameInfoDialog.vue";
 
 const { game } = defineProps(["game"]);
 const emit = defineEmits(["startError"]);
@@ -219,13 +220,11 @@ function fitGameToContainer() {
 let resizeObserver = null;
 
 // The game's controls and rules, which the buttons below the game show
-const gameInfo = [
-    { title: "Controls", text: game.controls, icon: "mdi-gamepad-outline" },
-    { title: "Rules", text: game.rules, icon: "mdi-book-open-variant-outline" },
-];
+const { controls, rules } = gameInfo(game);
+const infoButtons = [controls, rules];
 // The controls or the rules, shown in a dialog while infoShown is true. They
 // stay in it while it fades out.
-const shownInfo = ref(gameInfo[0]);
+const shownInfo = ref(controls);
 const infoShown = ref(false);
 
 // Shows the controls or the rules in a dialog, which stays open until the
@@ -269,7 +268,7 @@ onBeforeUnmount(() => {
     </div>
     <div class="game-info-bar">
         <q-btn
-            v-for="item in gameInfo"
+            v-for="item in infoButtons"
             :key="item.icon"
             color="primary-darkened"
             flat
@@ -300,27 +299,7 @@ onBeforeUnmount(() => {
             <q-tooltip :delay="500">Save game</q-tooltip>
         </q-btn>
     </div>
-    <!-- The controls or the rules. A tap or click outside closes it too. -->
-    <q-dialog v-model="infoShown">
-        <q-card style="width: 480px; max-width: 92vw">
-            <q-card-section class="row items-center no-wrap">
-                <q-icon :name="shownInfo.icon" color="primary" size="sm" class="q-mr-sm" />
-                <div class="text-h6">{{ shownInfo.title }}</div>
-            </q-card-section>
-
-            <q-card-section class="q-pt-none text-body1 game-info-text">{{ shownInfo.text }}</q-card-section>
-
-            <q-card-actions align="right">
-                <q-btn
-                    flat
-                    no-caps
-                    label="Close"
-                    color="grey-5"
-                    @click="infoShown = false"
-                />
-            </q-card-actions>
-        </q-card>
-    </q-dialog>
+    <GameInfoDialog v-model="infoShown" :info="shownInfo" />
     </div>
 </template>
 
@@ -347,10 +326,5 @@ onBeforeUnmount(() => {
     gap: 4px;
     padding: 4px 8px;
     background: #1a1a1a;
-}
-
-/* Keeps the line breaks the text may have */
-.game-info-text {
-    white-space: pre-line;
 }
 </style>
