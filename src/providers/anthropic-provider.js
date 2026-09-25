@@ -4,6 +4,9 @@ import { AnswerFormatError, safeParseGameJSON } from "../helpers/json-utils.js";
 // The model a game is generated with when the user has chosen none
 const DEFAULT_MODEL = "sonnet";
 
+// Answers to Gaimer's system prompt can take several minutes: a Tetris took about 8
+const GAME_CALL_TIMEOUT_MS = 15 * 60 * 1000;
+
 /**
  * Returns the result message from what `claude -p --output-format json`
  * printed, or undefined when there is none. The CLI prints one line of JSON
@@ -130,7 +133,8 @@ export function createAnthropicProvider() {
             const output = await withTempFile("gaimer-system", systemMessage, (systemFile) =>
                 shellExecWithInput(
                     `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
-                    prompt
+                    prompt,
+                    GAME_CALL_TIMEOUT_MS
                 )
             ).catch((err) => {
                 // The Claude CLI exits with code 1 when the result is an

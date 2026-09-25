@@ -179,14 +179,15 @@ describe('Anthropic Provider', () => {
       await provider.connect()
     })
 
-    it('runs the Claude CLI as a plain completion with the system prompt in a file', async () => {
+    it('runs the Claude CLI as a plain completion with the system prompt in a file, with a time limit of 15 minutes', async () => {
       shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
 
       await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
 
       expect(shellExecWithInput).toHaveBeenLastCalledWith(
         `claude -p --model sonnet --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
-        'A game of pong'
+        'A game of pong',
+        15 * 60 * 1000
       )
       expect(tempFiles['gaimer-system']).toBe('You write games.')
     })
@@ -294,15 +295,15 @@ describe('Anthropic Provider', () => {
       // An answer to a change request: change blocks, with no title or code
       const changes = { changes: [{ find: 'draw()', replace: 'drawFast()' }] }
 
-      it('runs the same command line, with the request on stdin, and gives the answer as the function reads it', async () => {
+      it('runs the same command line, with the same time limit and the request on stdin, and gives the answer as the function reads it', async () => {
         shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
         await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
-        const gameLine = shellExecWithInput.mock.lastCall[0]
+        const [gameLine, , gameTimeLimit] = shellExecWithInput.mock.lastCall
 
         shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(changes)))
         const chunks = await generate('Make the ball faster', { model: 'sonnet', systemMessage: 'You write games.', parse: parseChangeAnswer })
 
-        expect(shellExecWithInput).toHaveBeenLastCalledWith(gameLine, 'Make the ball faster')
+        expect(shellExecWithInput).toHaveBeenLastCalledWith(gameLine, 'Make the ball faster', gameTimeLimit)
         expect(chunks).toEqual([{ type: 'complete', data: { changes: changes.changes, keys: {} } }])
       })
 

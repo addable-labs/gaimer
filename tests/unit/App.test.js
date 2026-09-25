@@ -166,6 +166,12 @@ async function generate() {
   await flushPromises()
 }
 
+// The user sends a request from the box
+async function send(request) {
+  useAppStore().gameDescription = request
+  await flushPromises()
+}
+
 function modelSentTo(provider) {
   return provider.generateGame.mock.lastCall[1].model
 }
@@ -307,6 +313,7 @@ describe('App', () => {
     shell.output = claudeCli
     shell.exits = () => true
     shell.running = []
+    shell.killed = []
     setActivePinia(createPinia())
   })
 
@@ -532,6 +539,100 @@ describe('App', () => {
       await generate()
 
       expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+    })
+  })
+
+  // A game can take Claude several minutes to write
+  describe('time limit of a Claude call', () => {
+    // A game as Claude writes it, calling a function it has not defined
+    const pong = { title: 'Pong', code: 'drawBall()' }
+
+    beforeEach(async () => {
+      // The real Claude provider, which runs the Claude CLI through the shell
+      // plugin
+      const { createAnthropicProvider } = await vi.importActual('../../src/providers/anthropic-provider.js')
+      providers.anthropic = createAnthropicProvider()
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.useFakeTimers()
+    })
+
+    // The Claude CLI answers the app's calls for a game with these answers,
+    // in order: games, or other text. The calls after them get no answer, and
+    // run on.
+    function claudeAnswers(...answers) {
+      const answered = new Set()
+      const isGameCall = ({ args }) => args[2].startsWith('exec claude -p ')
+      shell.output = (process) => {
+        if (!isGameCall(process)) return claudeCli(process)
+        if (answers.length === 0) return ''
+        answered.add(process)
+        const answer = answers.shift()
+        const result = typeof answer === 'string' ? answer : JSON.stringify(answer)
+        return JSON.stringify({ type: 'result', is_error: false, result }) + '\n'
+      }
+      shell.exits = (process) => !isGameCall(process) || answered.has(process)
+    }
+
+    // The prompt of the call that runs on, which the provider wrote to a temp
+    // file for the Claude CLI to read
+    function runningPrompt() {
+      const [{ process }] = shell.running
+      return files.get(process.args[2].match(/< '(.+)'$/)[1])
+    }
+
+    // The call that runs on is stopped once it has run for 15 minutes, and
+    // not before, and the app says why
+    async function expectStoppedAfter15Minutes(wrapper) {
+      const [{ process }] = shell.running
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000 - 1)
+      expect(shell.killed).toEqual([])
+      expect(wrapper.text()).not.toContain('Command timed out')
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(shell.killed).toEqual([process])
+      expect(wrapper.text()).toContain('Command timed out')
+    }
+
+    it('is 15 minutes for a new game', async () => {
+      claudeAnswers()
+      const wrapper = await startApp()
+      await generate()
+      expect(runningPrompt()).toBe('A game of pong')
+
+      await expectStoppedAfter15Minutes(wrapper)
+    })
+
+    it('is 15 minutes for the fix of a new game that fails as it starts', async () => {
+      claudeAnswers(pong)
+      const wrapper = await startAppWithGames()
+      await generate()
+      const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:1:1' }
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(runningPrompt()).toBe(getFixPrompt(pong, startError))
+
+      await expectStoppedAfter15Minutes(wrapper)
+    })
+
+    it('is 15 minutes for a change', async () => {
+      claudeAnswers(pong)
+      const wrapper = await startApp()
+      await generate()
+      await send('Make the ball faster')
+      expect(runningPrompt()).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong']))
+
+      await expectStoppedAfter15Minutes(wrapper)
+    })
+
+    it('is 15 minutes for the whole game, asked for when the answer to a change is not change blocks', async () => {
+      claudeAnswers(pong, 'Here are the changes: the ball is faster')
+      const wrapper = await startApp()
+      await generate()
+      await send('Make the ball faster')
+      expect(runningPrompt()).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong'], { wholeGame: true }))
+
+      await expectStoppedAfter15Minutes(wrapper)
     })
   })
 
@@ -1007,12 +1108,6 @@ describe('App', () => {
       vi.spyOn(console, 'error').mockImplementation(() => {})
       vi.spyOn(console, 'warn').mockImplementation(() => {})
     })
-
-    // The user sends a request from the box
-    async function send(request) {
-      useAppStore().gameDescription = request
-      await flushPromises()
-    }
 
     // Starts the app with its game container, and generates a game of Pong,
     // which is then the open game. Returns the app and the game's id.
