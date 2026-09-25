@@ -1,5 +1,14 @@
 # Gaimer — Overall Improvement Plan
 
+**Status on 2026-09-25: Partly built.** This is the roadmap as written on 2026-03-04. What the code does now is in [architecture.md](architecture.md).
+
+- The Current State table describes March 2026. Since then there are two providers, OpenAI and Claude; the OpenAI API key is in the system keychain; a sandboxed iframe has replaced `eval()`; Tauri is at stable 2.x; there are unit and component tests; and the Firebase stub is gone. There are still no sprites and no runtime API, and no Xcode project is committed: CI generates it.
+- Phase 1: built, with the system keychain in place of Stronghold, and without Playwright or a JavaScript lint.
+- Phase 2: went another way. Claude runs through the user's Claude CLI, with no Agent SDK, OAuth, Rust proxy or streaming. Built: provider settings, JSON mode and a limit of 16384 tokens for OpenAI, and tests of the providers.
+- Phase 3: pause and resume are built, and a resized window scales the game instead of restarting it. The runtime API, touch controls, game loop, collision helpers and audio are not built; the system message asks each game for touch controls and sound of its own.
+- Phase 4, sprites: not built.
+- Phase 5: the Content Security Policy is set, the Firebase stub is gone, the header, the footer, the drawer, notifications and dialogs keep clear of the status bar and the home indicator, and CI builds the iOS app for the simulator. The rest is not built.
+
 > Version 0.2.0 roadmap — from working prototype to iOS App Store launch.
 
 ## Vision

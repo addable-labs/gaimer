@@ -1,6 +1,6 @@
 # Gaimer — Architecture
 
-This page describes the code as it is. The plans it grew from are in [improvement-plan.md](improvement-plan.md), [product-description.md](product-description.md) and [prds/](prds/).
+This page describes the code as it is. The plans it grew from are in [improvement-plan.md](improvement-plan.md), [product-description.md](product-description.md) and [prds/](prds/); each starts with a status line saying how much of it is built.
 
 ## Overview
 

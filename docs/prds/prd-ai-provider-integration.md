@@ -1,5 +1,15 @@
 # PRD: AI Provider Integration
 
+**Status on 2026-09-25: Partly built.** This is the plan as written on 2026-03-04. What the code does now is in [architecture.md](../architecture.md).
+
+- R1, provider abstraction: built, without `generateSprite()` and capability flags. The chosen provider is kept in `src/stores/persisted-store.js`; there is no provider store.
+- R2, Anthropic Agent SDK with OAuth: superseded. The Claude provider runs the user's Claude CLI, which keeps its own sign-in. There is no Agent SDK, no OAuth and no streaming.
+- R3, OpenAI provider: partly built. It takes an API key and asks for JSON mode. There is no OAuth and no streaming, and the window calls OpenAI itself, with `dangerouslyAllowBrowser`.
+- R4, Rust HTTP proxy: not built.
+- R5, provider settings: partly built. Settings has the provider choice, the OpenAI API key and a model for each provider, and the Claude panel shows whether the Claude CLI is installed and signed in, with Disconnect. There is no connections list, and the header does not show the provider.
+- R6, streaming progress: not built. While a game is generated the app shows a spinner and the seconds passed, and an error shows its message, with Retry. A generation cannot be cancelled.
+- Technical debt: `src/helpers/openai.js` and the Firebase stub are gone; `dangerouslyAllowBrowser` is still there.
+
 > Feature: Multi-provider AI integration with Anthropic Agent SDK (OAuth) as primary provider.
 
 ## Problem Statement

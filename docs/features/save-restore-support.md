@@ -1,5 +1,14 @@
 # Save/Restore Game State
 
+**Status on 2026-09-25: Built.** This is the design as written on 2026-04-01. The code differs from it in six ways:
+
+- The system message asks a game to keep all its state in one plain object, reached only through its variable: `saveState` sends it, and `restoreState` replaces it. The `requestAnimationFrame` id and the frame clock stay out of it, while the design asks for every `let`/`var` game variable in the state.
+- After a restore, the system message has the game wait for a tap or a click before play goes on, rather than go on at once.
+- `requestSave()` also fails at once, with the reason, when the game's state cannot be sent (when it holds a function, say): the page answers `saveFailed` instead of `stateData`.
+- GameContainer keeps no `hasSavedState`. After the probe it reads the state file, and when there is one it asks "Restore progress?", with the buttons "Restore" and "Start fresh".
+- A save that fails says why.
+- Deleting a game is not the only thing that deletes its saved state: a change of the game, the fix of a changed game and an undo delete it too, since it was saved from other code. The game then starts fresh, with no "Restore progress?".
+
 ## Context
 
 Gaimer generates HTML5 canvas games via AI that run in sandboxed iframes. Currently games are fire-and-forget — closing or switching loses all progress. The user wants save/restore support: pause a game, persist its state, and resume later. Since games are AI-generated with arbitrary internal state, the AI must be instructed to implement a save/restore contract via the existing postMessage protocol. Games that implement it show a save button; games that don't gracefully hide it.
