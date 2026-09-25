@@ -25,8 +25,8 @@ const game = { title: 'Pong', description: 'Two paddles and a ball', code: 'draw
 // runs it
 function claudeCli({ args }) {
   const line = args[2]
-  if (line === 'claude --version') return '2.1.281 (Claude Code)\n'
-  if (line === 'claude auth status') return JSON.stringify({ loggedIn: true }, null, 2)
+  if (line === 'exec claude --version') return '2.1.281 (Claude Code)\n'
+  if (line === 'exec claude auth status') return JSON.stringify({ loggedIn: true }, null, 2)
   return JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify(game) }) + '\n'
 }
 
@@ -69,7 +69,7 @@ describe('main window capability', () => {
       mount(ConnectClaude, { props: { connect: async () => ({ success: true }) }, global: { plugins: [Quasar] } })
       await flushPromises()
 
-      expect(shell.ran).toEqual([zsh('claude --version')])
+      expect(shell.ran).toEqual([zsh('exec claude --version')])
     })
 
     it('runs the provider\'s sign-in check and a game generation with each Claude model', async () => {
@@ -81,19 +81,29 @@ describe('main window capability', () => {
       }
 
       expect(shell.ran).toEqual([
-        zsh('claude auth status'),
-        ...models.map((model) => zsh(expect.stringContaining(`claude -p --model ${model} `))),
+        zsh('exec claude auth status'),
+        ...models.map((model) => zsh(expect.stringContaining(`exec claude -p --model ${model} `))),
       ])
     })
 
     it('refuses any other command line', () => {
       expect(runs('id')).toBeNull()
-      expect(runs('claude auth logout')).toBeNull()
-      expect(runs('claude --version --debug')).toBeNull()
+      expect(runs('exec id')).toBeNull()
+      expect(runs('exec claude auth logout')).toBeNull()
+      expect(runs('exec claude --version --debug')).toBeNull()
+    })
+
+    it('refuses the command lines without exec', async () => {
+      // Without exec, zsh can run the command as a child, which a timeout
+      // does not kill
+      for (const line of ['exec claude --version', 'exec claude auth status', await generation()]) {
+        expect(runs(line), line).toEqual(zsh(line))
+        expect(runs(line.replace(/^exec /, '')), line).toBeNull()
+      }
     })
 
     it('refuses a second command before or after one it allows', async () => {
-      for (const line of ['claude --version', 'claude auth status', await generation()]) {
+      for (const line of ['exec claude --version', 'exec claude auth status', await generation()]) {
         for (const separator of [';', ' &&', ' ||', ' |', '\n']) {
           expect(runs(`${line}${separator} id`), `${line}${separator} id`).toBeNull()
           expect(runs(`id${separator} ${line}`), `id${separator} ${line}`).toBeNull()
@@ -131,7 +141,7 @@ describe('main window capability', () => {
     })
 
     it('runs only through spawn', () => {
-      expect(shellRuns('execute', 'shell-cmd', ['-l', '-c', 'claude --version'])).toBeNull()
+      expect(shellRuns('execute', 'shell-cmd', ['-l', '-c', 'exec claude --version'])).toBeNull()
     })
   })
 

@@ -6,12 +6,17 @@ import { tempDir, join } from "@tauri-apps/api/path";
  * Run a command through a login shell to ensure the user's full PATH is available.
  * This is necessary because macOS apps launched from Finder/Dock don't inherit
  * the user's shell PATH (e.g. ~/.local/bin won't be found).
+ * The shell runs the command with exec, so it must be a single command.
  * Resolves to what the command printed on stdout. When the command exits with
  * an error code, it rejects with stderr (or the code) as the message, and
  * with what the command printed on stdout as error.stdout.
  */
 export async function shellExec(command, timeoutMs = 180000) {
-    const cmd = Command.create("shell-cmd", ["-l", "-c", command]);
+    // With exec the shell's process becomes the command's, so a timeout
+    // kills the command itself. Without it, zsh runs the command as a child
+    // when the user's login files set an EXIT trap, and the kill stops only
+    // zsh.
+    const cmd = Command.create("shell-cmd", ["-l", "-c", `exec ${command}`]);
     let stdout = "";
     let stderr = "";
 

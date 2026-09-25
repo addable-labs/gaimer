@@ -87,8 +87,8 @@ function fakeProvider(id) {
 // runs it: it is installed and signed in, and answers with a game of Pong
 function claudeCli({ args }) {
   const line = args[2]
-  if (line === 'claude --version') return '2.1.281 (Claude Code)\n'
-  if (line === 'claude auth status') return JSON.stringify({ loggedIn: true }, null, 2)
+  if (line === 'exec claude --version') return '2.1.281 (Claude Code)\n'
+  if (line === 'exec claude auth status') return JSON.stringify({ loggedIn: true }, null, 2)
   const game = { title: 'Pong', code: 'draw()' }
   return JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify(game) }) + '\n'
 }
@@ -355,10 +355,10 @@ describe('App', () => {
 
       // The panel's check that the CLI is installed ends after the user
       // has switched back
-      shell.exits = ({ args }) => args[2] !== 'claude --version'
+      shell.exits = ({ args }) => args[2] !== 'exec claude --version'
       await pickProvider(wrapper, 'anthropic')
       await pickProvider(wrapper, 'openai')
-      endRun('claude --version')
+      endRun('exec claude --version')
       await flushPromises()
       await generate()
 
@@ -399,8 +399,8 @@ describe('App', () => {
 
       // The Claude panel checks that the CLI is installed, and the sign-in
       // is checked once
-      expect(timesRun('claude --version')).toBe(1)
-      expect(timesRun('claude auth status')).toBe(1)
+      expect(timesRun('exec claude --version')).toBe(1)
+      expect(timesRun('exec claude auth status')).toBe(1)
       expect(wrapper.findComponent(ConnectClaude).text()).toContain('Connected')
 
       // Claude is connected and generates the game

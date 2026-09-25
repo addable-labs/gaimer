@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { Command } from '@tauri-apps/plugin-shell'
 import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
+import { shellRuns } from '../../capability.js'
 import * as plugin from '../../plugin-shell.js'
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
@@ -34,6 +38,43 @@ function fakeCommand(stdout, code = 0) {
   }
 }
 
+// A command that tauri-plugin-shell runs under the app's capability, in a
+// real process with the environment env. Like the plugin, kill() sends
+// SIGKILL to the process it started, and to no other. Once the command is
+// spawned, printed resolves to what the process prints first, and exited
+// resolves when the process has ended.
+function processCommand(program, args, env) {
+  const on = {}
+  const command = {
+    on: (event, handler) => { on[event] = handler },
+    stdout: { on: (event, handler) => { on.stdout = handler } },
+    stderr: { on: (event, handler) => { on.stderr = handler } },
+    spawn: async () => {
+      const run = shellRuns('spawn', program, args)
+      if (!run) throw new Error(`program not allowed on the configured shell scope: ${program}`)
+      const child = spawn(run.cmd, run.args, { env })
+      command.printed = new Promise((resolve) => child.stdout.once('data', (data) => resolve(String(data))))
+      command.exited = new Promise((resolve) => child.once('exit', resolve))
+      child.stdout.on('data', (data) => on.stdout(String(data)))
+      child.stderr.on('data', (data) => on.stderr(String(data)))
+      child.on('close', (code, signal) => on.close({ code, signal }))
+      return { pid: child.pid, kill: async () => { child.kill('SIGKILL') } }
+    },
+  }
+  return command
+}
+
+// Whether a process with this pid is running
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    if (err.code === 'ESRCH') return false
+    throw err
+  }
+}
+
 describe('shell', () => {
   beforeEach(() => {
     tempFiles.clear()
@@ -54,7 +95,7 @@ describe('shell', () => {
       await expect(shellExec('claude auth status', 10)).rejects.toThrow('Command timed out')
       await flushPromises()
 
-      expect(plugin.shell.killed).toEqual([{ cmd: '/bin/zsh', args: ['-l', '-c', 'claude auth status'] }])
+      expect(plugin.shell.killed).toEqual([{ cmd: '/bin/zsh', args: ['-l', '-c', 'exec claude auth status'] }])
     })
 
     it('passes what the command printed along when it fails', async () => {
@@ -63,6 +104,48 @@ describe('shell', () => {
       await expect(shellExec('claude -p --output-format json')).rejects.toMatchObject({
         message: 'Exit code 1',
         stdout: '{"type":"result","is_error":true}\n',
+      })
+    })
+
+    // zsh is the shell the app runs commands in, on macOS
+    describe.skipIf(!existsSync('/bin/zsh'))('in zsh', () => {
+      let home
+      // The pid of the stand-in for the Claude CLI
+      let pid
+
+      beforeEach(() => {
+        // A home folder whose login files set an EXIT trap, as a user's may,
+        // and put a stand-in for the Claude CLI first on the PATH. The
+        // stand-in prints its pid and waits.
+        home = mkdtempSync(`${tmpdir()}/gaimer-zsh-`)
+        writeFileSync(`${home}/.zshenv`, "trap 'true' EXIT\n")
+        writeFileSync(`${home}/.zlogin`, 'PATH="$ZDOTDIR/bin:$PATH"\n')
+        mkdirSync(`${home}/bin`)
+        writeFileSync(`${home}/bin/claude`, '#!/bin/sh\necho $$\nexec sleep 30\n', { mode: 0o755 })
+        pid = undefined
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+        if (pid && isRunning(pid)) process.kill(pid, 'SIGKILL')
+        rmSync(home, { recursive: true, force: true })
+      })
+
+      it('kills the command, not only zsh, when the user\'s login files set an EXIT trap', async () => {
+        let command
+        Command.create.mockImplementationOnce((program, args) => {
+          command = processCommand(program, args, { HOME: home, ZDOTDIR: home, PATH: '/usr/bin:/bin' })
+          return command
+        })
+
+        const timedOut = expect(shellExec('claude auth status', 1000)).rejects.toThrow('Command timed out')
+        pid = Number(await command.printed)
+        vi.advanceTimersByTime(1000)
+        await timedOut
+        await command.exited
+
+        expect(isRunning(pid)).toBe(false)
       })
     })
   })
@@ -105,7 +188,7 @@ describe('shell', () => {
       expect(Command.create).toHaveBeenCalledWith('shell-cmd', [
         '-l',
         '-c',
-        `claude -p --output-format json < '/tmp/gaimer-prompt-1790000000000.txt'`,
+        `exec claude -p --output-format json < '/tmp/gaimer-prompt-1790000000000.txt'`,
       ])
       expect(input).toBe('A game of pong')
       expect(output).toBe('{"type":"result"}\n')
