@@ -6,7 +6,7 @@ import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helper
 vi.mock('../../../src/helpers/shell.js', () => ({
   shellExec: vi.fn().mockRejectedValue(new Error('not in test')),
   shellExecWithInput: vi.fn().mockRejectedValue(new Error('not in test')),
-  withTempFile: vi.fn(),
+  withTempFile: vi.fn((prefix, text, fn) => fn(`/tmp/${prefix}-1.txt`)),
 }))
 
 // What "claude auth status" prints
@@ -41,6 +41,7 @@ describe('Anthropic Provider', () => {
   let provider
 
   beforeEach(() => {
+    vi.clearAllMocks()
     provider = createAnthropicProvider()
   })
 
@@ -146,9 +147,9 @@ describe('Anthropic Provider', () => {
     })
   })
 
-  it('generateGame is a function', () => {
-    expect(provider.generateGame).toBeDefined()
-    expect(typeof provider.generateGame).toBe('function')
+  it('generateGame runs no command, and fails, until a check finds the Claude CLI signed in', async () => {
+    await expect(provider.generateGame('A game of pong').next()).rejects.toThrow('Provider not connected')
+    expect(shellExecWithInput).not.toHaveBeenCalled()
   })
 
   describe('generateGame', () => {

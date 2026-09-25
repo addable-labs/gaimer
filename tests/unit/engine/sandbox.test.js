@@ -117,6 +117,7 @@ describe('createSandbox', () => {
   afterEach(() => {
     if (sandbox) sandbox.destroy()
     container.remove()
+    vi.restoreAllMocks()
   })
 
   it('creates an iframe inside the container', () => {
@@ -230,16 +231,27 @@ describe('createSandbox', () => {
     expect(handler).toHaveBeenCalledWith({ type: 'ready' })
   })
 
-  it('destroy() cleans up message listeners', () => {
+  it('destroy() stops listening: a message from the game reaches no handler, and the window keeps no listener', () => {
+    const addListener = vi.spyOn(window, 'addEventListener')
+    const removeListener = vi.spyOn(window, 'removeEventListener')
     sandbox = createSandbox(container)
     const handler = vi.fn()
     sandbox.onMessage(handler)
-    sandbox.destroy()
-    window.dispatchEvent(new MessageEvent('message', {
+    const game = container.querySelector('iframe').contentWindow
+    const sendFromGame = () => window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'ready' },
-      origin: 'null'
+      source: game,
     }))
-    expect(handler).not.toHaveBeenCalled()
+    // Before destroy(), the message reaches the handler
+    sendFromGame()
+    expect(handler).toHaveBeenCalledOnce()
+
+    sandbox.destroy()
+    sendFromGame()
+
+    expect(handler).toHaveBeenCalledOnce()
+    const messageListeners = (spy) => spy.mock.calls.filter(([type]) => type === 'message')
+    expect(messageListeners(removeListener)).toEqual(messageListeners(addListener))
     sandbox = null
   })
 

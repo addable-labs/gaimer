@@ -34,6 +34,7 @@ vi.mock("@tauri-apps/api/path", () => ({
     join: vi.fn((...parts) => Promise.resolve(parts.join("/"))),
 }));
 
+import { exists, mkdir } from "@tauri-apps/plugin-fs";
 import {
     initStorage,
     saveGame,
@@ -43,15 +44,26 @@ import {
     saveGameState,
 } from "../../../src/helpers/game-storage.js";
 
+// The folder the games are kept in, in iCloud Drive
+const gamesFolder = "/Users/test/Library/Mobile Documents/com~apple~CloudDocs/Gaimer";
+
 describe("game-storage", () => {
     beforeEach(() => {
         mockFiles.clear();
+        vi.clearAllMocks();
     });
 
-    it("initStorage creates directory", async () => {
-        const { mkdir } = await import("@tauri-apps/plugin-fs");
+    it("initStorage creates the games folder when it does not exist", async () => {
+        exists.mockResolvedValueOnce(false);
         await initStorage();
-        // Should not throw
+        expect(exists).toHaveBeenCalledWith(gamesFolder);
+        expect(mkdir).toHaveBeenCalledExactlyOnceWith(gamesFolder, { recursive: true });
+    });
+
+    it("initStorage leaves the games folder alone when it exists", async () => {
+        await initStorage();
+        expect(exists).toHaveBeenCalledWith(gamesFolder);
+        expect(mkdir).not.toHaveBeenCalled();
     });
 
     it("saveGame writes a JSON file", async () => {

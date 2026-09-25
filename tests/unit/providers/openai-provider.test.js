@@ -196,8 +196,12 @@ describe('OpenAI Provider', () => {
     })
   })
 
-  it('generateGame is an async generator function', () => {
-    expect(provider.generateGame).toBeDefined()
-    expect(typeof provider.generateGame).toBe('function')
+  it('generateGame gives the game in the one chunk App reads with for await', async () => {
+    await provider.connect({ apiKey: 'sk-test-key' })
+
+    const chunks = []
+    for await (const chunk of provider.generateGame('A game of pong', options)) chunks.push(chunk)
+
+    expect(chunks).toEqual([{ type: 'complete', data: { title: 'Test Game', code: '// test' } }])
   })
 })

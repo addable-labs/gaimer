@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createProviderRegistry } from '../../../src/providers/registry.js'
+import { createOpenAIProvider } from '../../../src/providers/openai-provider.js'
+import { createAnthropicProvider } from '../../../src/providers/anthropic-provider.js'
 
 // Mock provider that implements the AIProvider interface
 function createMockProvider(id, overrides = {}) {
@@ -88,14 +90,23 @@ describe('ProviderRegistry', () => {
 })
 
 describe('AIProvider interface', () => {
-  it('provider has all required properties', () => {
-    const provider = createMockProvider('test')
-    expect(provider).toHaveProperty('id')
-    expect(provider).toHaveProperty('name')
-    expect(provider).toHaveProperty('authMethod')
-    expect(provider).toHaveProperty('connect')
-    expect(provider).toHaveProperty('disconnect')
-    expect(provider).toHaveProperty('isConnected')
-    expect(provider).toHaveProperty('generateGame')
+  it('is implemented by each provider App registers', async () => {
+    for (const provider of [createOpenAIProvider(), createAnthropicProvider()]) {
+      expect(provider, provider.id).toMatchObject({
+        id: expect.any(String),
+        name: expect.any(String),
+        authMethod: expect.stringMatching(/^(apikey|subscription)$/),
+        defaultModel: expect.any(String),
+        connect: expect.any(Function),
+        disconnect: expect.any(Function),
+        isConnected: expect.any(Function),
+        listModels: expect.any(Function),
+        generateGame: expect.any(Function),
+      })
+      expect(provider.isConnected(), provider.id).toBe(false)
+      expect(await provider.listModels(), provider.id).toContain(provider.defaultModel)
+      // App reads the game from it with for await
+      expect(provider.generateGame('A game of pong')[Symbol.asyncIterator], provider.id).toBeTypeOf('function')
+    }
   })
 })
