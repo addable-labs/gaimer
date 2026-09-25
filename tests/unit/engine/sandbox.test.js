@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
 import { createSandbox } from '../../../src/engine/sandbox.js'
 import { gameScript, parsePage } from '../../game-page.js'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
@@ -242,6 +244,19 @@ describe('createSandbox', () => {
     expect(sources(windowPolicy, 'script-src')).toEqual(
       expect.arrayContaining(["'unsafe-inline'", 'data:'])
     )
+  })
+
+  it("the window page has no style element, so the game page's style applies in the built app", () => {
+    // Tauri gives each style element of the window page a nonce, and adds the
+    // nonce to the style-src it sends. A nonce voids 'unsafe-inline', and the
+    // game page, which takes a copy of that policy, has no nonce: its style
+    // element would not apply.
+    const windowPage = new DOMParser().parseFromString(
+      readFileSync(resolve(__dirname, '../../../index.html'), 'utf-8'),
+      'text/html'
+    )
+    expect(windowPage.querySelectorAll('style')).toHaveLength(0)
+    expect(sources(tauriConfig.app.security.csp, 'style-src')).toContain("'unsafe-inline'")
   })
 
   it('"<!--" and "<script" in the game code stay out of the page\'s HTML, so they cannot hide the end of its script', () => {

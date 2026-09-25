@@ -36,6 +36,8 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+
+    /* Prevent text size change on orientation change */
     -webkit-text-size-adjust: 100%;
 
     /* iOS safe area insets */
