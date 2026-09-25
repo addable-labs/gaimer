@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { createContext, runInContext } from 'vm'
+import { Window } from 'happy-dom'
 import { createSandbox } from '../../../src/engine/sandbox.js'
 import { gameScript, harnessScript, parsePage } from '../../game-page.js'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
@@ -18,11 +19,20 @@ function scriptUrls(srcdoc) {
 // runs after the harness, in the same global scope, as in the page. Each
 // script runs under its data: URL, so that a stack trace names it and gives
 // places in it as V8 counts them. A syntax error in the game's script goes
-// to the window's error listeners, as in the page.
-function runHarness(srcdoc, { game = false } = {}) {
-  const page = parsePage(srcdoc)
-  Object.defineProperty(page, 'currentScript', { value: page.querySelector('script') })
-  const win = new EventTarget()
+// to the window's error listeners, as in the page. With inWindow: true, the
+// page runs in a window of its own, whose document holds the page's canvas:
+// an event on the canvas goes through the window, whose capture listeners
+// run first, and an error that a listener throws goes to the window's error
+// listeners, as in a browser. The window is closed when the test ends.
+function runHarness(srcdoc, { game = false, inWindow = false } = {}) {
+  const parsed = parsePage(srcdoc)
+  const win = inWindow ? new Window() : new EventTarget()
+  const page = inWindow ? win.document : parsed
+  if (inWindow) {
+    onTestFinished(() => win.happyDOM.close())
+    page.body.append(page.importNode(parsed.querySelector('canvas')))
+  }
+  Object.defineProperty(page, 'currentScript', { value: parsed.querySelector('script') })
   const received = []
   const parent = { postMessage: vi.fn((message) => received.push(structuredClone(message))) }
   const scope = createContext({ window: win, document: page, parent })
@@ -37,6 +47,17 @@ function runHarness(srcdoc, { game = false } = {}) {
     }
   }
   return { win, parent, received }
+}
+
+// The player taps or clicks the canvas of a page run in a window of its own
+function tap(win) {
+  win.document.getElementById('game-canvas').dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true }))
+}
+
+// The player presses a key in a page run in a window of its own. The key
+// goes to the page's body, which has the focus.
+function press(win, key) {
+  win.document.body.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true }))
 }
 
 // The error event Chromium fires for a syntax error V8 found in a script,
@@ -728,6 +749,54 @@ function drawBall() {
     win.dispatchEvent(new ErrorEvent('error', { error: new Error('boom'), message: 'Uncaught Error: boom' }))
     // The report was tried once
     expect(parent.postMessage).toHaveBeenCalledOnce()
+  })
+
+  it("the game page tells the parent of the player's first touch, click or key press, and of no later input", () => {
+    const srcdoc = loadSrcdoc('// game')
+    // The mouse moves over the game, which is not input yet. Then a tap or a
+    // click, which gives a pointerdown on the canvas.
+    const tapped = runHarness(srcdoc, { inWindow: true })
+    const canvas = tapped.win.document.getElementById('game-canvas')
+    canvas.dispatchEvent(new tapped.win.PointerEvent('pointermove', { bubbles: true }))
+    expect(tapped.received).toEqual([])
+    tap(tapped.win)
+    expect(tapped.received).toEqual([{ type: 'firstInput', data: {} }])
+    tap(tapped.win)
+    press(tapped.win, ' ')
+    expect(tapped.received).toEqual([{ type: 'firstInput', data: {} }])
+
+    // A key press first
+    const pressed = runHarness(srcdoc, { inWindow: true })
+    press(pressed.win, 'ArrowUp')
+    expect(pressed.received).toEqual([{ type: 'firstInput', data: {} }])
+    press(pressed.win, 'ArrowUp')
+    tap(pressed.win)
+    expect(pressed.received).toEqual([{ type: 'firstInput', data: {} }])
+  })
+
+  it("the game page tells the parent of the player's first input before an error that the game's own handler throws for it", () => {
+    // The game plays from the first tap, click or key press, with the
+    // listeners the system message asks for, and play throws at once
+    const srcdoc = loadSrcdoc(`function play() {
+  spawnEnemy();
+}
+document.getElementById('game-canvas').addEventListener('pointerdown', play);
+window.addEventListener('keydown', play);`)
+    const error = {
+      type: 'error',
+      data: { message: 'spawnEnemy is not defined', stack: expect.any(String), line: 2, column: 3 }
+    }
+
+    // The canvas's listener runs after the page's, which the window has for
+    // the capture phase
+    const tapped = runHarness(srcdoc, { game: true, inWindow: true })
+    tap(tapped.win)
+    expect(tapped.received).toEqual([{ type: 'ready', data: {} }, { type: 'firstInput', data: {} }, error])
+
+    // The window's own listener runs after the page's, which it got first
+    const pressed = runHarness(srcdoc, { game: true, inWindow: true })
+    press(pressed.win, ' ')
+    expect(pressed.received).toEqual([{ type: 'ready', data: {} }, { type: 'firstInput', data: {} }, error])
   })
 
   it('loadGame() keeps "</script" in the game code as written, and it cannot end the script early', () => {

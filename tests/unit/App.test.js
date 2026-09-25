@@ -829,6 +829,48 @@ describe('App', () => {
       expect(notifications()).toContain('Game error: An error after 5 s')
     })
 
+    // A game with a start screen plays from the player's first input, which
+    // its page reports
+    it("is fixed when it fails in the first 5 seconds after the player's first input, however long the start screen was shown", async () => {
+      vi.useFakeTimers()
+      answerWith(providers.anthropic, broken)
+      answerWith(providers.anthropic, fixed)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      // The start screen is shown for 20 seconds. The player taps, and 3
+      // seconds into play the game throws.
+      await sendFromGame(wrapper, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(20000)
+      await sendFromGame(wrapper, { type: 'firstInput', data: {} })
+      await vi.advanceTimersByTimeAsync(3000)
+      const playError = { message: "Can't find variable: drawBall", stack: 'play@game.js:12:5' }
+      await sendFromGame(wrapper, { type: 'error', data: playError })
+
+      const calls = providers.anthropic.generateGame.mock.calls
+      expect(calls).toHaveLength(2)
+      expect(calls[1][0]).toContain(`${playError.message}\n${playError.stack}`)
+      expect(gameOnScreen(wrapper)).toContain('draw()')
+      expect(gameOnScreen(wrapper)).not.toContain('drawBall()')
+    })
+
+    it("is not fixed when it fails 6 seconds after the player's first input", async () => {
+      vi.useFakeTimers()
+      answerWith(providers.anthropic, broken)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      await sendFromGame(wrapper, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(20000)
+      await sendFromGame(wrapper, { type: 'firstInput', data: {} })
+      await vi.advanceTimersByTimeAsync(6000)
+      await sendFromGame(wrapper, { type: 'error', data: { message: 'An error 6 s into play' } })
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+      expect(gameOnScreen(wrapper)).toContain('drawBall()')
+      expect(notifications()).toContain('Game error: An error 6 s into play')
+    })
+
     it('is not fixed when it was opened from the list', async () => {
       addSavedGame('100', 'Tetris')
       answerWith(providers.anthropic, broken)

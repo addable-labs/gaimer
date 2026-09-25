@@ -339,5 +339,96 @@ describe('GameContainer', () => {
 
       expect(startErrors(wrapper)).toEqual([{ message: 'player is undefined', stack: '' }])
     })
+
+    it('counts the 5 seconds from the first ready only', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+      sendFromGame(game, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(4000)
+      // The game's code says it is ready too
+      sendFromGame(game, { type: 'ready', data: {} })
+
+      await vi.advanceTimersByTimeAsync(1000)
+      sendFromGame(game, { type: 'error', data: { message: 'An error after 5 s' } })
+
+      expect(startErrors(wrapper)).toEqual([])
+    })
+
+    // The page reports the player's first input
+    describe("with a start screen, which plays from the player's first input", () => {
+      it('reports an error in the first 5 seconds after the first input, however long the start screen was shown', async () => {
+        const wrapper = await showGame({ width: 800, height: 600 })
+        const game = wrapper.find('iframe').element.contentWindow
+        sendFromGame(game, { type: 'ready', data: {} })
+        await vi.advanceTimersByTimeAsync(20000)
+
+        // The player taps, play starts, and the first enemy appears
+        sendFromGame(game, { type: 'firstInput', data: {} })
+        await vi.advanceTimersByTimeAsync(4999)
+        const error = { message: "Can't find variable: enemies", stack: 'spawn@game.js:40:9' }
+        sendFromGame(game, { type: 'error', data: error })
+
+        expect(startErrors(wrapper)).toEqual([error])
+      })
+
+      it('does not report an error 5 seconds after the first input', async () => {
+        const wrapper = await showGame({ width: 800, height: 600 })
+        const game = wrapper.find('iframe').element.contentWindow
+        sendFromGame(game, { type: 'ready', data: {} })
+        await vi.advanceTimersByTimeAsync(20000)
+        sendFromGame(game, { type: 'firstInput', data: {} })
+
+        await vi.advanceTimersByTimeAsync(5000)
+        sendFromGame(game, { type: 'error', data: { message: 'An error 5 s into play' } })
+
+        expect(startErrors(wrapper)).toEqual([])
+        await vi.advanceTimersByTimeAsync(100)
+        expect(notifications()).toContain('Game error: An error 5 s into play')
+      })
+
+      it('counts the 5 seconds from the first input when it comes in the first 5 seconds after ready', async () => {
+        const wrapper = await showGame({ width: 800, height: 600 })
+        const game = wrapper.find('iframe').element.contentWindow
+        sendFromGame(game, { type: 'ready', data: {} })
+        await vi.advanceTimersByTimeAsync(2000)
+        sendFromGame(game, { type: 'firstInput', data: {} })
+
+        // 6 seconds after ready, 4 after the first input
+        await vi.advanceTimersByTimeAsync(4000)
+        sendFromGame(game, { type: 'error', data: { message: 'player is undefined', stack: '' } })
+
+        expect(startErrors(wrapper)).toEqual([{ message: 'player is undefined', stack: '' }])
+      })
+
+      it('counts from the first input only', async () => {
+        const wrapper = await showGame({ width: 800, height: 600 })
+        const game = wrapper.find('iframe').element.contentWindow
+        sendFromGame(game, { type: 'ready', data: {} })
+        await vi.advanceTimersByTimeAsync(20000)
+        sendFromGame(game, { type: 'firstInput', data: {} })
+        await vi.advanceTimersByTimeAsync(4000)
+        sendFromGame(game, { type: 'firstInput', data: {} })
+
+        // 6 seconds after the first input
+        await vi.advanceTimersByTimeAsync(2000)
+        sendFromGame(game, { type: 'error', data: { message: 'An error 6 s into play' } })
+
+        expect(startErrors(wrapper)).toEqual([])
+      })
+
+      it('reports no second error after one it reported before the first input', async () => {
+        const wrapper = await showGame({ width: 800, height: 600 })
+        const game = wrapper.find('iframe').element.contentWindow
+        sendFromGame(game, { type: 'ready', data: {} })
+        await vi.advanceTimersByTimeAsync(1000)
+        sendFromGame(game, { type: 'error', data: { message: 'The start screen fails', stack: '' } })
+
+        sendFromGame(game, { type: 'firstInput', data: {} })
+        await vi.advanceTimersByTimeAsync(1000)
+        sendFromGame(game, { type: 'error', data: { message: 'Play fails', stack: '' } })
+
+        expect(startErrors(wrapper)).toEqual([{ message: 'The start screen fails', stack: '' }])
+      })
+    })
   })
 })

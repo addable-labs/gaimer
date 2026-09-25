@@ -112,6 +112,19 @@ function __gaimer_sendMessage(type, data) {
   }
 }
 
+// Tell the parent of the player's first input: the first touch, click or
+// key press. A game that waits on a start screen starts to play then. The
+// listeners are the window's, for the capture phase, so they run before the
+// game's own: the parent learns of the input before any error that the
+// game's handler throws.
+function __gaimer_onFirstInput() {
+  window.removeEventListener('pointerdown', __gaimer_onFirstInput, true);
+  window.removeEventListener('keydown', __gaimer_onFirstInput, true);
+  __gaimer_sendMessage('firstInput', {});
+}
+window.addEventListener('pointerdown', __gaimer_onFirstInput, true);
+window.addEventListener('keydown', __gaimer_onFirstInput, true);
+
 // Report errors to the parent: a syntax error in the game's script, which
 // runs after this one, and errors the game throws later (game loop, input
 // handlers, promises). Stack traces quote a script's whole data: URL in each

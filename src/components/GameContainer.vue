@@ -22,23 +22,33 @@ let loggedError = null;
 // syntax error, or an error its start code throws), or in its first
 // START_SECONDS seconds after that. Those seconds cover its first frames and
 // the timers and countdowns it starts with, while the player has not got far
-// yet. Only seconds with the page visible count: a hidden page runs no
-// frames, and the game is paused. The first such error goes to App as
-// startError.
+// yet. A game with a start screen plays only from the player's first input,
+// and an error that only play sets off (the first collision, the first
+// spawn) can come after those seconds: the START_SECONDS seconds after that
+// input count as well. Only seconds with the page visible count: a hidden
+// page runs no frames, and the game is paused. The first such error goes to
+// App as startError, and no later one.
 const START_SECONDS = 5;
-let starting = true;
-let startSecondsLeft = START_SECONDS;
+// Whether the game has sent ready, whether its page has reported the
+// player's first input, and whether an error has gone to App as startError
+let ready = false;
+let inputSeen = false;
+let startErrorSent = false;
+// The seconds left to count, from ready or from the first input
+let startSecondsLeft = 0;
 let startClock = null;
 
+// Counts START_SECONDS seconds from now, in which an error is still one the
+// game fails with as it starts
 function countStartSeconds() {
-    if (!starting || startClock) return;
+    stopStartClock();
+    startSecondsLeft = START_SECONDS;
     startClock = setInterval(() => {
-        if (!document.hidden && --startSecondsLeft === 0) endStart();
+        if (!document.hidden && --startSecondsLeft === 0) stopStartClock();
     }, 1000);
 }
 
-function endStart() {
-    starting = false;
+function stopStartClock() {
     clearInterval(startClock);
     startClock = null;
 }
@@ -125,8 +135,9 @@ function loadGameScript() {
                 position: "top",
                 color: "negative",
             });
-            if (starting) {
-                endStart();
+            if (!startErrorSent && (!ready || startSecondsLeft > 0)) {
+                startErrorSent = true;
+                stopStartClock();
                 emit("startError", {
                     message: String(msg.data?.message || "Unknown error"),
                     stack: typeof msg.data?.stack === "string" ? msg.data.stack : "",
@@ -140,9 +151,15 @@ function loadGameScript() {
                 });
             }
         } else if (msg.type === "ready") {
-            countStartSeconds();
+            if (!ready) {
+                ready = true;
+                countStartSeconds();
+            }
             // Probe for save/restore support, then offer restore if available
             probeSaveSupport().then(() => checkAndOfferRestore());
+        } else if (msg.type === "firstInput" && !inputSeen) {
+            inputSeen = true;
+            countStartSeconds();
         }
     });
 
@@ -194,7 +211,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    endStart();
+    stopStartClock();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     resizeObserver.disconnect();
     if (sandbox) {
