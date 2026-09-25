@@ -8,6 +8,7 @@ const { gameDescription, generating } = storeToRefs(appStore);
 
 const descriptionMaxLength = ref(4096);
 const userInput = ref("");
+const fieldRef = ref(null);
 
 async function handleUserInput() {
     // Trim user input of any whitespace characters
@@ -18,7 +19,9 @@ async function handleUserInput() {
     gameDescription.value = userInput.value;
     userInput.value = "";
 
-    document.getElementById("user-input")?.blur();
+    // Take the focus off the field: off the textarea after Cmd+Enter, off
+    // the send button after a click or tap (QInput's blur() does both)
+    fieldRef.value.blur();
 }
 
 const remainingCharactersText = computed(() => {
@@ -36,7 +39,7 @@ const remainingCharactersText = computed(() => {
             dark
             dense
             filled
-            id="user-input"
+            ref="fieldRef"
             style="width: min(90vw, 800px)"
             type="textarea"
             v-model="userInput"
