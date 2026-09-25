@@ -1,5 +1,13 @@
 # Gaimer — Product Description
 
+**Status on 2026-09-25: Partly built.** This describes the product as planned on 2026-03-04. What the code does now is in [architecture.md](architecture.md).
+
+- Built: generating a game from a description, with OpenAI (the user's API key) or Claude (the user's Claude CLI); changing the open game with a follow-up request, and going back to its earlier versions; games that run in a sandboxed canvas and are asked to pause while the app is hidden; a game library in the drawer, kept as JSON files.
+- Not built: sprites and other generated art, haptics, an engine with physics and collision, sharing, and local models.
+- Sound and touch controls are left to each game: the system message asks for short sound effects made in code with the Web Audio API, where they fit, and for touch buttons drawn on the canvas, or gestures. The app itself has no sound or music, and no virtual controls or gesture recognition for games.
+- The Technology Stack table is out of date: the app uses Vite 8, the Claude CLI rather than the Agent SDK with OAuth, JSON files rather than IndexedDB, and the system keychain rather than Stronghold, and it has no Playwright tests.
+- Platforms: CI builds for macOS, Windows, Linux and the iOS simulator. The Claude provider works on macOS, and on Linux with zsh installed, but not on Windows or iOS.
+
 ## What is Gaimer?
 
 Gaimer is an AI-powered game creation platform that lets anyone describe a game in plain language and instantly play it. No coding required. No game development experience needed. Just describe what you want — "a space shooter where you dodge asteroids and collect power-ups" — and Gaimer generates a fully playable HTML5 game with custom-generated sprite art, sound effects, and touch-friendly controls.

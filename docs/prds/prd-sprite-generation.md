@@ -1,5 +1,7 @@
 # PRD: Real-Time Sprite Generation
 
+**Status on 2026-09-25: Not built.** This is the plan as written on 2026-03-04, and none of it exists. It assumes IndexedDB, which the app no longer uses (games are JSON files; see [architecture.md](../architecture.md)), and sprites made by Claude through tool use, but Claude does not generate images.
+
 > Feature: AI-generated visual game assets (characters, enemies, items, backgrounds) created in parallel with game code generation.
 
 ## Problem Statement

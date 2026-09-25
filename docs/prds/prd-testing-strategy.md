@@ -1,5 +1,14 @@
 # PRD: Testing Strategy
 
+**Status on 2026-09-25: Partly built.** This is the plan as written on 2026-03-04, when Gaimer had no tests. What exists now is described in [architecture.md](../architecture.md#tests).
+
+- R1, infrastructure: Vitest is set up with Vue Test Utils, happy-dom and v8 coverage. There is no Playwright, and no `test:integration` or `test:e2e` script.
+- R2 to R4, unit, store and component tests: built, in `tests/unit/`, for the modules that exist. The planned tests of the runtime modules (collision, input, game loop, audio), sprites, IndexedDB and the provider store do not apply: those modules do not exist.
+- R5, integration tests, and R6, Playwright tests: not built.
+- R7, Rust tests: the keychain commands in `src-tauri/src/credentials.rs` have tests. The proxy, OAuth and storage commands they were planned for do not exist.
+- R8, CI: `.github/workflows/ci.yml` runs `yarn test:coverage`, then the builds, and on Linux `cargo fmt --check`, clippy and `cargo test`. There is no JavaScript lint and no coverage artifact.
+- Coverage: the [targets below](#test-coverage-targets) are not what is set. `vitest.config.js` sets one floor for all of `src/` but `src/main.js`: statements 94%, branches 89%, functions 90%, lines 96%. `yarn test:coverage` fails below it, and so does CI. There is no floor per module, and none for the Rust code.
+
 > Feature: Comprehensive TDD-based testing infrastructure with Vitest (unit/integration), Vue Test Utils (component), Playwright (e2e), and Rust `#[cfg(test)]` (backend).
 
 ## Problem Statement
