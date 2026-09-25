@@ -47,11 +47,18 @@ export function createSandbox(container, options = {}) {
     // The game's code runs in an IIFE, in a script of its own: a syntax error
     // stops only that script, and the harness reports it. In the try block
     // the code stays in sloppy mode, even if it starts with "use strict".
-    // The catch reports an error thrown while the game starts.
+    // A line holding only ";", an empty statement, ends the code. Code cut
+    // off in the middle of an expression then fails with a syntax error that
+    // the parser finds after the code. Without the line, the ready call
+    // would complete the expression: after "player." it would be a call of
+    // player.__gaimer_sendMessage, and after "var f = () =>" the body of a
+    // function that nothing calls. After code that is complete, the line
+    // does nothing. The catch reports an error thrown while the game starts.
     const gameScriptStart = `(function() {
   try {
     `
     const gameScript = `${gameScriptStart}${gameCode}
+    ;
     __gaimer_sendMessage('ready', {});
   } catch (e) {
     __gaimer_reportError(e, String(e));

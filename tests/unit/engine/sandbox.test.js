@@ -566,13 +566,13 @@ function drawBall() {
   })
 
   it('the game page says the same of other code the parser reads past the end of: a bracket or parenthesis left open, a statement or template literal not ended', () => {
-    // V8 finds each error in the wrapper's line after the code, or, for the
-    // template literal, at the end of the script
+    // V8 finds each error in the wrapper's line after the code, which holds
+    // only ";", or, for the template literal, at the end of the script
     const cases = [
       ['var level = [\n  [1, 2],', "Unexpected token ';'"],
-      ['draw(1,', 'missing ) after argument list'],
-      ['if (x > 5', "Unexpected identifier '__gaimer_sendMessage'"],
-      ['var speed = 5;\nvar', "Unexpected token '('"],
+      ['draw(1,', "Unexpected token ';'"],
+      ['if (x > 5', "Unexpected token ';'"],
+      ['var speed = 5;\nvar', "Unexpected token ';'"],
       ['var title = `Score:\n', 'Unexpected end of input']
     ]
     sandbox = createSandbox(container)
@@ -583,6 +583,60 @@ function drawBall() {
         { type: 'error', data: { message, stack: `SyntaxError: ${message}`, afterCode: true } }
       ])
     }
+  })
+
+  it('the game page ends the game code with a line holding only ";", so that code cut off in the middle of an expression fails with a syntax error after the code', () => {
+    // Without that line, the ready call after the code would complete each
+    // expression. "player." would call player.__gaimer_sendMessage, which is
+    // not a function. The arrow function would take the call as its body,
+    // and the game would never send ready. The sum would send ready, and the
+    // broken game would run.
+    const cases = ['var player = { x: 0, y: 0 };\nplayer.', 'var f = () =>', 'var x = 5 +']
+    sandbox = createSandbox(container)
+    const received = Object.fromEntries(
+      cases.map((code) => {
+        sandbox.loadGame(code)
+        return [code, runHarness(container.querySelector('iframe').srcdoc, { game: true }).received]
+      })
+    )
+    // For each, V8 finds the error at the ";", and the game does not send
+    // ready
+    const error = { message: "Unexpected token ';'", stack: "SyntaxError: Unexpected token ';'", afterCode: true }
+    expect(received).toEqual(Object.fromEntries(cases.map((code) => [code, [{ type: 'error', data: error }]])))
+  })
+
+  it('the line holding only ";" after the game code changes nothing for code that is complete', () => {
+    // Code that ends with no ";", with a comment, or with a statement that
+    // takes the ";" as its own
+    const cases = [
+      'window.score = 1',
+      'window.score = 1; // the end',
+      'window.score = 0;\ndo window.score++; while (window.score < 1)'
+    ]
+    sandbox = createSandbox(container)
+    for (const code of cases) {
+      sandbox.loadGame(code)
+      const { win, received } = runHarness(container.querySelector('iframe').srcdoc, { game: true })
+      expect(win.score, code).toBe(1)
+      expect(received, code).toEqual([{ type: 'ready', data: {} }])
+    }
+  })
+
+  it('the game page gives the place of an error the game throws on the last line of its code, just before the line holding only ";"', () => {
+    const { received } = runHarness(loadSrcdoc('var player = null;\nplayer.x = 1'), { game: true })
+    expect(received).toEqual([
+      {
+        type: 'error',
+        data: { message: "Cannot set properties of null (setting 'x')", stack: expect.any(String), line: 2, column: 10 }
+      }
+    ])
+    // The stack's frame in the code, and the frame of the wrapper that calls
+    // the code, which has no place in it
+    expect(received[0].data.stack.split('\n').slice(0, 3)).toEqual([
+      "TypeError: Cannot set properties of null (setting 'x')",
+      '    at game.js:2:10',
+      '    at game.js'
+    ])
   })
 
   it('the game page gives the place of a syntax error on the last line of the game code, which is not after the code', () => {
