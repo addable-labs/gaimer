@@ -145,4 +145,25 @@ describe('GameContainer', () => {
     expect(received).toContainEqual({ type: 'restoreState', data: savedState })
     expect(document.querySelector('.q-dialog')).toBeNull()
   })
+
+  it('logs a game error that repeats on every frame once, and shows it', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = await showGame({ width: 800, height: 600 })
+    const game = wrapper.find('iframe').element.contentWindow
+
+    // The game throws on each of three frames, then fails in another way
+    for (let frame = 0; frame < 3; frame++) {
+      sendFromGame(game, { type: 'error', data: { message: "Can't find variable: player" } })
+    }
+    sendFromGame(game, { type: 'error', data: { message: 'level is undefined' } })
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(logged.mock.calls).toEqual([
+      ['Game error:', "Can't find variable: player"],
+      ['Game error:', 'level is undefined'],
+    ])
+    const notifications = [...document.querySelectorAll('.q-notification')].map((n) => n.textContent)
+    expect(notifications.join()).toContain("Game error: Can't find variable: player")
+    expect(notifications.join()).toContain('Game error: level is undefined')
+  })
 })

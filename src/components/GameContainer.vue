@@ -14,6 +14,8 @@ let sandbox = null;
 const containerRef = ref(null);
 const saveSupported = ref(false);
 const saving = ref(false);
+// The message of the game error logged last
+let loggedError = null;
 
 async function probeSaveSupport() {
     if (!sandbox) return;
@@ -73,7 +75,12 @@ function loadGameScript() {
     // Listen for messages from the sandbox
     sandbox.onMessage((msg) => {
         if (msg.type === "error") {
-            console.error("Game error:", msg.data?.message);
+            // A game that throws on every frame sends the same error every
+            // frame: log it once
+            if (msg.data?.message !== loggedError) {
+                loggedError = msg.data?.message;
+                console.error("Game error:", loggedError);
+            }
             $q.notify({
                 message: `Game error: ${msg.data?.message || "Unknown error"}`,
                 position: "top",
