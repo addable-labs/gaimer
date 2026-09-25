@@ -24,8 +24,8 @@ vi.mock('@tauri-apps/api/path', () => ({
   join: vi.fn(async (...parts) => parts.join('/')),
 }))
 
-// A command that prints stdout and then exits with code
-function fakeCommand(stdout, code = 0) {
+// A command that prints stdout, and stderr if given, and then exits with code
+function fakeCommand(stdout, code = 0, stderr = '') {
   const on = {}
   return {
     on: (event, handler) => { on[event] = handler },
@@ -33,6 +33,7 @@ function fakeCommand(stdout, code = 0) {
     stderr: { on: (event, handler) => { on.stderr = handler } },
     spawn: async () => {
       on.stdout(stdout)
+      if (stderr) on.stderr(stderr)
       on.close({ code })
     },
   }
@@ -96,6 +97,12 @@ describe('shell', () => {
       await flushPromises()
 
       expect(plugin.shell.killed).toEqual([{ cmd: '/bin/zsh', args: ['-l', '-c', 'exec claude auth status'] }])
+    })
+
+    it('fails with what the command printed on stderr, as zsh does when it cannot find claude', async () => {
+      Command.create.mockImplementationOnce(() => fakeCommand('', 127, 'zsh:1: command not found: claude\n'))
+
+      await expect(shellExec('claude auth status')).rejects.toThrow(/^zsh:1: command not found: claude$/)
     })
 
     it('passes what the command printed along when it fails', async () => {

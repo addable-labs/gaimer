@@ -426,6 +426,26 @@ describe('App', () => {
       expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
       expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
     })
+
+    it('is OpenAI once the user saves an API key, and uses a new key as soon as it is saved', async () => {
+      await startApp()
+
+      // What Settings does when the user saves a key
+      usePersistedStore().apiKey = 'sk-first'
+      await flushPromises()
+      await generate()
+
+      expect(providers.openai.connect).toHaveBeenLastCalledWith({ apiKey: 'sk-first' })
+      expect(providers.openai.generateGame).toHaveBeenCalledOnce()
+
+      usePersistedStore().apiKey = 'sk-second'
+      await flushPromises()
+      await generate()
+
+      expect(providers.openai.disconnect).toHaveBeenCalledOnce()
+      expect(providers.openai.connect).toHaveBeenLastCalledWith({ apiKey: 'sk-second' })
+      expect(providers.openai.generateGame).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('Claude sign-in check', () => {
@@ -606,6 +626,56 @@ describe('App', () => {
 
       expect(wrapper.text()).not.toContain('Game not found')
       expect(wrapper.text()).toContain('Welcome to Gaimer')
+    })
+
+    it('shows why a saved game cannot be opened', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      // A game file with no title
+      savedGames.set('100', { id: '100', prompt: '"A game of Tetris"', content: JSON.stringify({ code: 'tetris()' }) })
+      const wrapper = await startApp()
+
+      await openGame(wrapper, '100')
+
+      expect(wrapper.text()).toContain('Missing required field: title')
+      expect(wrapper.text()).not.toContain('Loading game...')
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
+    })
+  })
+
+  describe('a game that cannot be generated', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    it('shows why, and Retry asks the provider for the same game again', async () => {
+      providers.anthropic.generateGame.mockImplementationOnce(async function* () {
+        throw new Error('Claude CLI error: Not logged in · Please run /login')
+      })
+      const wrapper = await startApp()
+
+      await generate()
+
+      expect(wrapper.text()).toContain('Claude CLI error: Not logged in · Please run /login')
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
+      expect(useAppStore().gameList).toEqual([])
+
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledTimes(2)
+      expect(providers.anthropic.generateGame.mock.calls[1][0]).toBe('A game of pong')
+      expect(wrapper.findComponent(GameContainer).props('game').title).toBe('Pong')
+    })
+
+    it('says so when the provider gives no game', async () => {
+      providers.anthropic.generateGame.mockImplementationOnce(async function* () {})
+      const wrapper = await startApp()
+
+      await generate()
+
+      expect(wrapper.text()).toContain('No response from AI provider')
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
     })
   })
 

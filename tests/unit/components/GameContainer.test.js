@@ -174,6 +174,22 @@ describe('GameContainer', () => {
     expect(notifications()).toContain('Game error: level is undefined')
   })
 
+  it("saves the game's state for the open game when the player presses Save, and says so", async () => {
+    vi.mocked(saveGameState).mockClear()
+    useAppStore().loadedGame = '1790000000000'
+    const wrapper = await showGame({ width: 800, height: 600 })
+    const { game } = playGame(wrapper, { level: 2, score: 300 })
+    sendFromGame(game, { type: 'ready', data: {} })
+    await vi.advanceTimersByTimeAsync(100)
+
+    await saveButton(wrapper).trigger('click')
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(saveGameState).toHaveBeenCalledExactlyOnceWith('1790000000000', { level: 2, score: 300 })
+    expect(notifications()).toContain('Game saved')
+    expect(saveButton(wrapper).find('.q-spinner').exists()).toBe(false)
+  })
+
   it("says at once why a save failed when the game's state cannot be sent", async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     useAppStore().loadedGame = '1790000000000'

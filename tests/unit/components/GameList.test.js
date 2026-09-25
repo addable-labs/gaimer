@@ -51,6 +51,14 @@ describe('GameList', () => {
     vi.clearAllMocks()
   })
 
+  it('opens the game the user clicks', async () => {
+    const wrapper = await showList()
+
+    await wrapper.findAllComponents(QItem).find((item) => item.text().includes('Pong')).trigger('click')
+
+    expect(wrapper.emitted('loadGame')).toEqual([['100']])
+  })
+
   it('asks before deleting a game', async () => {
     const wrapper = await showList()
 

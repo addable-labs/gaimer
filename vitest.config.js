@@ -17,7 +17,15 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{js,vue}'],
-      exclude: ['src/main.js']
+      exclude: ['src/main.js'],
+      // The coverage the tests reach, rounded down: yarn test:coverage fails
+      // when it drops below
+      thresholds: {
+        statements: 94,
+        branches: 89,
+        functions: 90,
+        lines: 96
+      }
     },
     setupFiles: ['tests/setup.js']
   }

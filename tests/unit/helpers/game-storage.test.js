@@ -42,6 +42,7 @@ import {
     listGames,
     deleteGame,
     saveGameState,
+    loadGameState,
 } from "../../../src/helpers/game-storage.js";
 
 // The folder the games are kept in, in iCloud Drive
@@ -173,5 +174,57 @@ describe("game-storage", () => {
     it("loadGame throws for missing game", async () => {
         await initStorage();
         await expect(loadGame("nonexistent")).rejects.toThrow("not found");
+    });
+
+    describe("saved state", () => {
+        beforeEach(async () => {
+            await initStorage();
+            await saveGame({
+                id: "321",
+                prompt: '"test"',
+                content: JSON.stringify({ title: "Saved Game", code: "// code" }),
+            });
+        });
+
+        it("saveGameState writes the state next to the game's file, and loadGameState reads it back", async () => {
+            await saveGameState("321", { level: 2, score: 42 });
+            expect(mockFiles.get(`${gamesFolder}/321-saved-game.state.json`)).toBe('{"level":2,"score":42}');
+            expect(await loadGameState("321")).toEqual({ level: 2, score: 42 });
+        });
+
+        it("saveGameState fails for a game that is not in the folder, and writes nothing", async () => {
+            await expect(saveGameState("999", { score: 42 })).rejects.toThrow("Game not found: 999");
+            expect([...mockFiles.keys()]).toEqual([`${gamesFolder}/321-saved-game.json`]);
+        });
+
+        it("loadGameState returns null for a game with no saved state", async () => {
+            expect(await loadGameState("321")).toBeNull();
+        });
+
+        it("loadGameState returns null for a saved state that is not JSON", async () => {
+            mockFiles.set(`${gamesFolder}/321-saved-game.state.json`, "{ score: 4");
+            expect(await loadGameState("321")).toBeNull();
+        });
+
+        it("listGames marks the games that have a saved state, and lists no state file as a game", async () => {
+            await saveGame({
+                id: "400",
+                prompt: '""',
+                content: JSON.stringify({ title: "New Game", code: "// code" }),
+            });
+            await saveGameState("321", { score: 42 });
+            const games = await listGames();
+            expect(games.map(({ id, title, hasSavedState }) => ({ id, title, hasSavedState }))).toEqual([
+                { id: "400", title: "New Game", hasSavedState: false },
+                { id: "321", title: "Saved Game", hasSavedState: true },
+            ]);
+        });
+
+        it("deleteGame deletes the game's saved state too", async () => {
+            await saveGameState("321", { score: 42 });
+            expect(mockFiles.size).toBe(2);
+            await deleteGame("321");
+            expect(mockFiles.size).toBe(0);
+        });
     });
 });

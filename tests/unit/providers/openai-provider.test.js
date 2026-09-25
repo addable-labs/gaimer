@@ -196,6 +196,28 @@ describe('OpenAI Provider', () => {
     })
   })
 
+  describe('an answer that is not a game', () => {
+    beforeEach(async () => {
+      await provider.connect({ apiKey: 'sk-test-key' })
+    })
+
+    it('says so when the answer is empty', async () => {
+      const answer = generateWithAnswer(provider, 'gpt-4o', { message: { content: '' }, finish_reason: 'stop' })
+      await expect(answer).rejects.toThrow('Empty response from OpenAI')
+    })
+
+    it('says why when the answer cannot be read as a game', async () => {
+      const text = { message: { content: 'Here is your game!' }, finish_reason: 'stop' }
+      await expect(generateWithAnswer(provider, 'gpt-4o', text)).rejects.toThrow(
+        'Failed to parse game response: Invalid JSON: '
+      )
+      const untitled = { message: { content: '{"code":"draw()"}' }, finish_reason: 'stop' }
+      await expect(generateWithAnswer(provider, 'gpt-4o', untitled)).rejects.toThrow(
+        'Failed to parse game response: Missing required field: title'
+      )
+    })
+  })
+
   it('generateGame gives the game in the one chunk App reads with for await', async () => {
     await provider.connect({ apiKey: 'sk-test-key' })
 
