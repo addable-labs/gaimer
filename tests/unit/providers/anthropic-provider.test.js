@@ -3,6 +3,7 @@ import { createAnthropicProvider } from '../../../src/providers/anthropic-provid
 import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
 import { parseChangeAnswer } from '../../../src/helpers/change-blocks.js'
 import { AnswerFormatError } from '../../../src/helpers/json-utils.js'
+import { getChangePrompt, getFixPrompt } from '../../../src/helpers/prompts.js'
 
 // Mock the shell helper
 vi.mock('../../../src/helpers/shell.js', () => ({
@@ -169,6 +170,12 @@ describe('Anthropic Provider', () => {
       return shellExecWithInput.mock.lastCall[0].split(' ')
     }
 
+    // The word after a flag in the last command line the provider ran
+    function flagValue(flag) {
+      const words = commandWords()
+      return words.includes(flag) ? words[words.indexOf(flag) + 1] : undefined
+    }
+
     beforeEach(async () => {
       tempFiles = {}
       withTempFile.mockImplementation(async (prefix, text, fn) => {
@@ -179,17 +186,46 @@ describe('Anthropic Provider', () => {
       await provider.connect()
     })
 
-    it('runs the Claude CLI as a plain completion with the system prompt in a file, with a time limit of 15 minutes', async () => {
+    it('runs the Claude CLI as a plain completion at effort low, with the system prompt in a file, with a time limit of 15 minutes', async () => {
       shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
 
       await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
 
       expect(shellExecWithInput).toHaveBeenLastCalledWith(
-        `claude -p --model sonnet --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
+        `claude -p --model sonnet --effort low --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
         'A game of pong',
         15 * 60 * 1000
       )
       expect(tempFiles['gaimer-system']).toBe('You write games.')
+    })
+
+    it('runs each kind of call for a game at effort low: a new game, the fix of a game that fails as it starts, a change, and the whole game asked for after a change', async () => {
+      const broken = { title: 'Pong', code: 'drawBall()' }
+      const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:1:1' }
+      // Each kind of call: its prompt, and for a change the parse function
+      // the app passes
+      const calls = {
+        'a new game': ['A game of pong'],
+        'a fix': [getFixPrompt(broken, startError)],
+        'a change': [getChangePrompt(game, 'Make the ball faster', ['A game of pong']), { parse: parseChangeAnswer }],
+        'the whole game after a change': [getChangePrompt(game, 'Make the ball faster', ['A game of pong'], { wholeGame: true })],
+      }
+
+      // The effort each kind of call runs at
+      const efforts = {}
+      for (const [kind, [prompt, options]] of Object.entries(calls)) {
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+        await generate(prompt, options)
+        expect(shellExecWithInput.mock.lastCall[1], kind).toBe(prompt)
+        efforts[kind] = flagValue('--effort')
+      }
+
+      expect(efforts).toEqual({
+        'a new game': 'low',
+        'a fix': 'low',
+        'a change': 'low',
+        'the whole game after a change': 'low',
+      })
     })
 
     it('runs sonnet, the default it names, when no model is chosen', async () => {

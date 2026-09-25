@@ -4,7 +4,9 @@ import { AnswerFormatError, safeParseGameJSON } from "../helpers/json-utils.js";
 // The model a game is generated with when the user has chosen none
 const DEFAULT_MODEL = "sonnet";
 
-// Answers to Gaimer's system prompt can take several minutes: a Tetris took about 8
+// A game took about a minute to write at effort low, but the user's own
+// Claude setup can raise the effort (see generateGame): at high, sonnet's
+// default in the CLI, a Tetris took about 8
 const GAME_CALL_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
@@ -124,15 +126,22 @@ export function createAnthropicProvider() {
             // replaces Claude Code's, the built-in tools are off, and no
             // session is saved to disk. Only the prompt goes on stdin: the
             // user's description, or a request to fix or change a game. The
-            // command line is the same for each. The user's own Claude Code
-            // setup stays out of it:
+            // command line is the same for each. At --effort low Claude
+            // thinks next to nothing before it answers, so a game takes
+            // about a minute, not several (haiku has no effort levels, and
+            // the CLI sends its calls without one). Most of the user's own
+            // Claude Code setup stays out of it:
             // --safe-mode skips their CLAUDE.md, hooks, plugins and skills
             // but still reads the subscription sign-in (--bare would not),
             // and --strict-mcp-config with no --mcp-config starts no MCP
-            // servers.
+            // servers. Their settings.json is still read: --effort decides
+            // over an effortLevel there, but a CLAUDE_CODE_EFFORT_LEVEL in
+            // their environment or in that file's env decides over --effort,
+            // and alwaysThinkingEnabled: false still turns thinking off,
+            // which matters little at low effort.
             const output = await withTempFile("gaimer-system", systemMessage, (systemFile) =>
                 shellExecWithInput(
-                    `claude -p --model ${model} --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
+                    `claude -p --model ${model} --effort low --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
                     prompt,
                     GAME_CALL_TIMEOUT_MS
                 )

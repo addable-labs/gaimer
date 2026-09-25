@@ -15,7 +15,7 @@
                         "-l",
                         "-c",
                         {
-                            "validator": "(?:exec claude --version|exec claude auth status|exec claude -p --model [a-z0-9][a-z0-9.-]* --tools \"\" --system-prompt-file '[^']*/gaimer-system-[0-9]+\\.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json < '[^']*/gaimer-prompt-[0-9]+\\.txt')"
+                            "validator": "(?:exec claude --version|exec claude auth status|exec claude -p --model [a-z0-9][a-z0-9.-]* --effort low --tools \"\" --system-prompt-file '[^']*/gaimer-system-[0-9]+\\.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json < '[^']*/gaimer-prompt-[0-9]+\\.txt')"
                         }
                     ]
                 },

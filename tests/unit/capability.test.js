@@ -153,6 +153,18 @@ describe('main window capability', () => {
       expect(runs(line.replace('--tools ""', '--dangerously-skip-permissions --tools ""'))).toBeNull()
     })
 
+    it('refuses a game call at any effort but low', async () => {
+      const line = await generation()
+
+      for (const effort of ['medium', 'high', 'xhigh', 'max']) {
+        expect(runs(line.replace('--effort low', `--effort ${effort}`)), effort).toBeNull()
+      }
+      // With no --effort the CLI's default runs, and of two the CLI takes
+      // the last
+      expect(runs(line.replace(' --effort low', ''))).toBeNull()
+      expect(runs(line.replace('--effort low', '--effort low --effort max'))).toBeNull()
+    })
+
     it('refuses files other than the ones the provider writes', async () => {
       const line = await generation()
 
