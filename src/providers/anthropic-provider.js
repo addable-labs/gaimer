@@ -1,6 +1,9 @@
 import { shellExec, shellExecWithInput, withTempFile } from "../helpers/shell.js";
 import { safeParseGameJSON } from "../helpers/json-utils.js";
 
+// The model a game is generated with when the user has chosen none
+const DEFAULT_MODEL = "sonnet";
+
 /**
  * Returns the result message from what `claude -p --output-format json`
  * printed, or undefined when there is none. The CLI prints one line of JSON
@@ -51,6 +54,7 @@ export function createAnthropicProvider() {
         id: "anthropic",
         name: "Anthropic Claude",
         authMethod: "subscription",
+        defaultModel: DEFAULT_MODEL,
 
         async connect() {
             const call = ++calls;
@@ -110,7 +114,7 @@ export function createAnthropicProvider() {
             if (!connected)
                 throw new Error("Provider not connected");
 
-            const model = options.model || "sonnet";
+            const model = options.model || DEFAULT_MODEL;
             const systemMessage = options.systemMessage || "";
 
             // Run Claude as a plain completion: Gaimer's system prompt

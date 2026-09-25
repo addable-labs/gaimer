@@ -5,6 +5,7 @@
  *   id: string
  *   name: string
  *   authMethod: 'apikey' | 'subscription'
+ *   defaultModel: string (the model generateGame uses when none is given)
  *   connect(): Promise<AuthResult>
  *   disconnect(): Promise<void>
  *   isConnected(): boolean

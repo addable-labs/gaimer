@@ -119,13 +119,14 @@ describe('OpenAI Provider', () => {
       expect(await provider.listModels()).toEqual(offered)
     })
 
-    it('offers the model it generates with when none is chosen', async () => {
+    it('offers and names as its default the model it generates with when none is chosen', async () => {
       await provider.connect({ apiKey: 'sk-test-key' })
       await provider.generateGame('A game of pong').next()
 
       const { model } = openai.client.chat.completions.create.mock.lastCall[0]
       expect(model).toBe('gpt-4o')
       expect(await provider.listModels()).toContain(model)
+      expect(provider.defaultModel).toBe(model)
     })
   })
 

@@ -44,6 +44,15 @@ async function fetchModels(providerId) {
     loadingModels.value[providerId] = false;
 }
 
+// What a provider's Model select shows while no model is chosen: the model
+// the provider then uses. It is not saved as a choice, so a later change of
+// the provider's default applies.
+function defaultModelLabel(providerId) {
+    if (selectedModels.value[providerId]) return undefined;
+    const defaultModel = props.registry.get(providerId)?.defaultModel;
+    return defaultModel ? `${defaultModel} (default)` : undefined;
+}
+
 async function handleSaveApiKey() {
     userInput.value = userInput.value.replace(/^\s+|\s+$/g, "");
     if (userInput.value === "") return;
@@ -143,6 +152,7 @@ watch(model, (visible) => {
                     v-model="selectedModels.openai"
                     :options="availableModels.openai"
                     :loading="loadingModels.openai"
+                    :display-value="defaultModelLabel('openai')"
                     label="Model"
                     class="q-mt-md"
                     emit-value
@@ -163,6 +173,7 @@ watch(model, (visible) => {
                     v-model="selectedModels.anthropic"
                     :options="availableModels.anthropic"
                     :loading="loadingModels.anthropic"
+                    :display-value="defaultModelLabel('anthropic')"
                     label="Model"
                     class="q-mt-md"
                     emit-value

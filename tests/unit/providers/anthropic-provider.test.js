@@ -188,12 +188,13 @@ describe('Anthropic Provider', () => {
       expect(tempFiles['gaimer-system']).toBe('You write games.')
     })
 
-    it('runs sonnet when no model is chosen', async () => {
+    it('runs sonnet, the default it names, when no model is chosen', async () => {
       shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
 
       await generate()
 
       expect(shellExecWithInput.mock.lastCall[0]).toMatch(/^claude -p --model sonnet /)
+      expect(provider.defaultModel).toBe('sonnet')
     })
 
     it('starts no MCP servers from the Claude config', async () => {

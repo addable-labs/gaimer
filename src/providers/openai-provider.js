@@ -5,6 +5,9 @@ import { safeParseGameJSON } from "../helpers/json-utils.js";
 // (maxTokens): its token limit counts both
 const REASONING_TOKENS = 16384;
 
+// The model a game is generated with when the user has chosen none
+const DEFAULT_MODEL = "gpt-4o";
+
 /**
  * Creates an OpenAI provider implementing the AIProvider interface.
  * Wraps the existing OpenAI integration behind the standard provider contract.
@@ -17,6 +20,7 @@ export function createOpenAIProvider() {
         id: "openai",
         name: "OpenAI",
         authMethod: "apikey",
+        defaultModel: DEFAULT_MODEL,
 
         async connect(credentials = {}) {
             if (!credentials.apiKey) {
@@ -59,7 +63,7 @@ export function createOpenAIProvider() {
             if (!client) throw new Error("Provider not connected");
 
             const systemMessage = options.systemMessage || "";
-            const model = options.model || "gpt-4o";
+            const model = options.model || DEFAULT_MODEL;
             const maxTokens = options.maxTokens || 16384;
             const temperature = options.temperature ?? 0.2;
 

@@ -5,6 +5,7 @@ import { Quasar, QBtnToggle, QSelect } from 'quasar'
 import Settings from '../../../src/components/Settings.vue'
 import { usePersistedStore } from '../../../src/stores/persisted-store.js'
 import { createOpenAIProvider } from '../../../src/providers/openai-provider.js'
+import { createAnthropicProvider } from '../../../src/providers/anthropic-provider.js'
 
 const registry = { get: () => ({ listModels: async () => [] }) }
 
@@ -30,6 +31,11 @@ async function pickProvider(wrapper, id) {
 
 function modelSelect(wrapper) {
   return wrapper.findComponent(QSelect)
+}
+
+// The value the Model select shows
+function shownModel(wrapper) {
+  return modelSelect(wrapper).find('.q-select__selected-value').text()
 }
 
 enableAutoUnmount(afterEach)
@@ -64,6 +70,31 @@ describe('Settings', () => {
 
     await pickProvider(wrapper, 'openai')
     expect(modelSelect(wrapper).props('modelValue')).toBe('gpt-4o')
+  })
+
+  it('shows the model each provider uses while none is chosen', async () => {
+    const providers = { get: (id) => (id === 'openai' ? createOpenAIProvider() : createAnthropicProvider()) }
+    const wrapper = await openSettings(providers)
+    expect(shownModel(wrapper)).toBe('gpt-4o (default)')
+
+    await pickProvider(wrapper, 'anthropic')
+    expect(shownModel(wrapper)).toBe('sonnet (default)')
+
+    // A model the user picks shows as it is
+    modelSelect(wrapper).vm.$emit('update:modelValue', 'opus')
+    await flushPromises()
+    expect(shownModel(wrapper)).toBe('opus')
+  })
+
+  it('saves no model while it shows the default, so a later default applies', async () => {
+    const providersWithDefault = (defaultModel) => ({ get: () => ({ defaultModel, listModels: async () => [] }) })
+    await openSettings(providersWithDefault('gpt-4o'))
+
+    // The app starts again, in a version with another default
+    setActivePinia(createPinia())
+    expect(usePersistedStore().selectedModels).toEqual({ openai: '', anthropic: '' })
+    const wrapper = await openSettings(providersWithDefault('gpt-5.5'))
+    expect(shownModel(wrapper)).toBe('gpt-5.5 (default)')
   })
 
   it('offers each provider only its own models when a list arrives after the user switched', async () => {
