@@ -43,6 +43,9 @@ import {
     deleteGame,
     saveGameState,
     loadGameState,
+    addGameVersion,
+    replaceGameVersion,
+    undoGameVersion,
 } from "../../../src/helpers/game-storage.js";
 
 // The folder the games are kept in, in iCloud Drive
@@ -225,6 +228,194 @@ describe("game-storage", () => {
             expect(mockFiles.size).toBe(2);
             await deleteGame("321");
             expect(mockFiles.size).toBe(0);
+        });
+    });
+
+    describe("versions", () => {
+        // A game of Pong, made from a description, and two changes of it
+        const pong = { title: "Pong", description: "Two paddles", rules: "First to 5", code: "ball(5);" };
+        const fasterPong = { ...pong, code: "ball(8);" };
+        const bigPong = { ...pong, title: "Big Pong", rules: "First to 7", code: "ball(8); big();" };
+        const pongFile = `${gamesFolder}/500-pong.json`;
+        const bigPongFile = `${gamesFolder}/500-big-pong.json`;
+
+        // The files in the folder, by name
+        function fileNames() {
+            return [...mockFiles.keys()].map((path) => path.split("/").pop());
+        }
+
+        // The file's data
+        function readFile(path) {
+            return JSON.parse(mockFiles.get(path));
+        }
+
+        beforeEach(async () => {
+            await initStorage();
+            await saveGame({ id: "500", prompt: '"A game of pong"', content: JSON.stringify(pong) });
+        });
+
+        it("loadGame gives a game that has not been changed with no change requests", async () => {
+            expect(await loadGame("500")).toEqual({
+                id: "500",
+                prompt: '"A game of pong"',
+                content: JSON.stringify(pong),
+                changeRequests: [],
+            });
+        });
+
+        it("addGameVersion saves the changed game as the game's version, and keeps the one before with the request that changed it", async () => {
+            const saved = await addGameVersion("500", fasterPong, "Make the ball faster");
+
+            expect(readFile(pongFile)).toEqual({
+                ...fasterPong,
+                id: "500",
+                prompt: '"A game of pong"',
+                versions: [{ game: pong, request: "Make the ball faster" }],
+            });
+            // The game as loadGame gives it: the version, without the earlier ones
+            const loaded = await loadGame("500");
+            expect(saved).toEqual(loaded);
+            expect(loaded).toEqual({
+                id: "500",
+                prompt: '"A game of pong"',
+                content: JSON.stringify(fasterPong),
+                changeRequests: ["Make the ball faster"],
+            });
+        });
+
+        it("keeps each version before a change, oldest first", async () => {
+            await addGameVersion("500", fasterPong, "Make the ball faster");
+            await addGameVersion("500", bigPong, "Make it big");
+
+            expect(readFile(bigPongFile).versions).toEqual([
+                { game: pong, request: "Make the ball faster" },
+                { game: fasterPong, request: "Make it big" },
+            ]);
+            expect((await loadGame("500")).changeRequests).toEqual(["Make the ball faster", "Make it big"]);
+        });
+
+        it("undoGameVersion goes back one version at a time, to the first, and then fails, changing nothing", async () => {
+            await addGameVersion("500", fasterPong, "Make the ball faster");
+            await addGameVersion("500", bigPong, "Make it big");
+
+            const once = await undoGameVersion("500");
+            expect(once).toEqual({
+                id: "500",
+                prompt: '"A game of pong"',
+                content: JSON.stringify(fasterPong),
+                changeRequests: ["Make the ball faster"],
+            });
+            expect(await loadGame("500")).toEqual(once);
+
+            const twice = await undoGameVersion("500");
+            expect(twice).toEqual({ id: "500", prompt: '"A game of pong"', content: JSON.stringify(pong), changeRequests: [] });
+            expect(readFile(pongFile)).toEqual({ ...pong, id: "500", prompt: '"A game of pong"', versions: [] });
+
+            const files = new Map(mockFiles);
+            await expect(undoGameVersion("500")).rejects.toThrow("The game has no earlier version: 500");
+            expect(mockFiles).toEqual(files);
+        });
+
+        it("a change of title leaves one file, under the new title, where the game is found by its id", async () => {
+            await addGameVersion("500", bigPong, "Make it big");
+
+            expect(fileNames()).toEqual(["500-big-pong.json"]);
+            expect(JSON.parse((await loadGame("500")).content).title).toBe("Big Pong");
+            await saveGameState("500", { score: 3 });
+            expect(await loadGameState("500")).toEqual({ score: 3 });
+            expect(fileNames()).toEqual(["500-big-pong.json", "500-big-pong.state.json"]);
+
+            // An undo that goes back to the old title goes back to its file
+            await undoGameVersion("500");
+            expect(fileNames()).toEqual(["500-pong.json"]);
+
+            await addGameVersion("500", bigPong, "Make it big");
+            await deleteGame("500");
+            expect(mockFiles.size).toBe(0);
+        });
+
+        it("listGames lists a changed game once, as its version, and no earlier version", async () => {
+            await addGameVersion("500", fasterPong, "Make the ball faster");
+            await addGameVersion("500", bigPong, "Make it big");
+
+            expect(await listGames()).toEqual([
+                { id: "500", title: "Big Pong", description: "Two paddles", controls: undefined, rules: "First to 7", hasSavedState: false },
+            ]);
+        });
+
+        it("deleteGame deletes everything of a changed game: its file, with its versions, and its saved state", async () => {
+            await addGameVersion("500", fasterPong, "Make the ball faster");
+            await saveGameState("500", { score: 3 });
+            // And a second file of the game, which a change of title that
+            // failed halfway would leave
+            mockFiles.set(bigPongFile, JSON.stringify({ ...bigPong, id: "500" }));
+            await saveGame({ id: "600", prompt: '"A game of snake"', content: JSON.stringify({ title: "Snake", code: "snake();" }) });
+
+            await deleteGame("500");
+
+            expect(fileNames()).toEqual(["600-snake.json"]);
+        });
+
+        it("a change, an undo and a replaced version each delete the game's saved state, which was saved from other code", async () => {
+            const steps = [
+                () => addGameVersion("500", fasterPong, "Make the ball faster"),
+                () => replaceGameVersion("500", { ...fasterPong, code: "ball(9);" }),
+                () => undoGameVersion("500"),
+            ];
+            for (const step of steps) {
+                await saveGameState("500", { score: 3 });
+                expect(await loadGameState("500")).toEqual({ score: 3 });
+
+                await step();
+
+                expect(await loadGameState("500")).toBeNull();
+                expect(fileNames().some((name) => name.endsWith(".state.json"))).toBe(false);
+            }
+        });
+
+        it("replaceGameVersion replaces the game's version, and keeps its earlier versions", async () => {
+            await addGameVersion("500", fasterPong, "Make the ball faster");
+            const fixed = { ...bigPong, code: "ball(8); big(); fixed();" };
+
+            const saved = await replaceGameVersion("500", fixed);
+
+            expect(fileNames()).toEqual(["500-big-pong.json"]);
+            expect(readFile(bigPongFile)).toEqual({
+                ...fixed,
+                id: "500",
+                prompt: '"A game of pong"',
+                versions: [{ game: pong, request: "Make the ball faster" }],
+            });
+            expect(saved).toEqual({
+                id: "500",
+                prompt: '"A game of pong"',
+                content: JSON.stringify(fixed),
+                changeRequests: ["Make the ball faster"],
+            });
+        });
+
+        it("keeps the game's own id, description and versions over keys of the same name in a game from the model", async () => {
+            const answer = { ...fasterPong, id: "999", prompt: "other", versions: [] };
+
+            await addGameVersion("500", answer, "Make the ball faster");
+
+            expect(readFile(pongFile)).toEqual({
+                ...fasterPong,
+                id: "500",
+                prompt: '"A game of pong"',
+                versions: [{ game: pong, request: "Make the ball faster" }],
+            });
+        });
+
+        it("fails for a game that is not in the folder, and writes nothing", async () => {
+            for (const step of [
+                () => addGameVersion("999", fasterPong, "Make the ball faster"),
+                () => replaceGameVersion("999", fasterPong),
+                () => undoGameVersion("999"),
+            ]) {
+                await expect(step()).rejects.toThrow("Game not found: 999");
+            }
+            expect(fileNames()).toEqual(["500-pong.json"]);
         });
     });
 });
