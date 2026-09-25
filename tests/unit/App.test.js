@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { Quasar } from 'quasar'
+import { Quasar, QBtn, QBtnToggle } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
@@ -11,6 +11,7 @@ import { listGames, loadGame as loadGameFromFS } from '../../src/helpers/game-st
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
 import { gameScript } from '../game-page.js'
+import { shell } from '../plugin-shell.js'
 
 // Stand-ins for the two providers, so that no test runs the Claude CLI or calls OpenAI
 const providers = vi.hoisted(() => ({}))
@@ -19,6 +20,19 @@ vi.mock('../../src/providers/openai-provider.js', () => ({
 }))
 vi.mock('../../src/providers/anthropic-provider.js', () => ({
   createAnthropicProvider: () => providers.anthropic,
+}))
+
+// Runs commands as the shell plugin would under the app's capability
+vi.mock('@tauri-apps/plugin-shell', () => import('../plugin-shell.js'))
+
+// The temp files the Claude provider writes for a game generation
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  writeTextFile: vi.fn(async () => {}),
+  remove: vi.fn(async () => {}),
+}))
+vi.mock('@tauri-apps/api/path', () => ({
+  tempDir: vi.fn(async () => '/tmp'),
+  join: vi.fn(async (...parts) => parts.join('/')),
 }))
 
 // A fresh credential store for each test, so that no API key carries over
@@ -69,6 +83,28 @@ function fakeProvider(id) {
   return provider
 }
 
+// What the Claude CLI prints, given the arguments of the login shell that
+// runs it: it is installed and signed in, and answers with a game of Pong
+function claudeCli({ args }) {
+  const line = args[2]
+  if (line === 'claude --version') return '2.1.281 (Claude Code)\n'
+  if (line === 'claude auth status') return JSON.stringify({ loggedIn: true }, null, 2)
+  const game = { title: 'Pong', code: 'draw()' }
+  return JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify(game) }) + '\n'
+}
+
+// How many times the app ran a command line in a login shell
+function timesRun(line) {
+  return shell.ran.filter(({ args }) => args[2] === line).length
+}
+
+// End a command line that is still running in a login shell
+function endRun(line) {
+  shell.running.find(({ process }) => process.args[2] === line).exit()
+}
+
+// Starts the app. Settings is stubbed unless other stubs are given: with
+// {}, Settings and its Claude panel are real.
 async function startApp(stubs = { Settings: true }) {
   const wrapper = mount(App, {
     global: {
@@ -96,11 +132,26 @@ function modelSentTo(provider) {
   return provider.generateGame.mock.lastCall[1].model
 }
 
-// Open Settings from the drawer and return its Claude panel (Claude must be selected)
-async function openClaudePanel(wrapper) {
+// Open Settings from the drawer
+async function openSettings(wrapper) {
   await wrapper.find('[aria-label="Settings"]').trigger('click')
   await flushPromises()
+}
+
+// Open Settings from the drawer and return its Claude panel (Claude must be selected)
+async function openClaudePanel(wrapper) {
+  await openSettings(wrapper)
   return wrapper.findComponent(ConnectClaude)
+}
+
+// The user picks a provider in Settings, which must be open and not stubbed
+async function pickProvider(wrapper, id) {
+  wrapper.findComponent(QBtnToggle).vm.$emit('update:modelValue', id)
+  await flushPromises()
+}
+
+function button(wrapper, label) {
+  return wrapper.findAllComponents(QBtn).find((btn) => btn.props('label') === label)
 }
 
 // Keep Claude's next sign-in check running until the test ends it
@@ -167,6 +218,10 @@ describe('App', () => {
     savedGames.clear()
     providers.openai = fakeProvider('openai')
     providers.anthropic = fakeProvider('anthropic')
+    shell.ran = []
+    shell.output = claudeCli
+    shell.exits = () => true
+    shell.running = []
     setActivePinia(createPinia())
   })
 
@@ -230,14 +285,13 @@ describe('App', () => {
 
     it('has none when the selected provider fails to connect again', async () => {
       localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
-      const wrapper = await startApp()
+      const wrapper = await startApp({})
 
-      // Settings asks for Claude to be connected again, as it does after the
-      // sign-in check in its Claude panel, but Claude is now signed out
+      // Opening Settings shows the Claude panel, which has Claude's sign-in
+      // checked again, but Claude is now signed out
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       providers.anthropic.canConnect = false
-      wrapper.findComponent(Settings).vm.$emit('providerChanged', 'anthropic')
-      await flushPromises()
+      await openClaudePanel(wrapper)
       await generate()
 
       expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
@@ -261,13 +315,14 @@ describe('App', () => {
 
     it('stays OpenAI when Claude fails to connect after the user switched back', async () => {
       credentials.set('openai:apiKey', 'sk-test')
-      const wrapper = await startApp()
+      const wrapper = await startApp({})
+      await openSettings(wrapper)
 
       // Claude's sign-in check is still running when the user switches back
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const finishClaudeConnect = holdClaudeConnect()
-      await switchProvider(wrapper, 'anthropic')
-      await switchProvider(wrapper, 'openai')
+      await pickProvider(wrapper, 'anthropic')
+      await pickProvider(wrapper, 'openai')
       providers.anthropic.canConnect = false
       finishClaudeConnect()
       await flushPromises()
@@ -278,13 +333,32 @@ describe('App', () => {
 
     it('stays OpenAI when Claude connects after the user switched back', async () => {
       credentials.set('openai:apiKey', 'sk-test')
-      const wrapper = await startApp()
+      const wrapper = await startApp({})
+      await openSettings(wrapper)
 
       // Claude's sign-in check is still running when the user switches back
       const finishClaudeConnect = holdClaudeConnect()
-      await switchProvider(wrapper, 'anthropic')
-      await switchProvider(wrapper, 'openai')
+      await pickProvider(wrapper, 'anthropic')
+      await pickProvider(wrapper, 'openai')
       finishClaudeConnect()
+      await flushPromises()
+      await generate()
+
+      expect(providers.openai.generateGame).toHaveBeenCalledOnce()
+      expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+    })
+
+    it('stays OpenAI when the user switches back while the Claude panel checks the CLI', async () => {
+      credentials.set('openai:apiKey', 'sk-test')
+      const wrapper = await startApp({})
+      await openSettings(wrapper)
+
+      // The panel's check that the CLI is installed ends after the user
+      // has switched back
+      shell.exits = ({ args }) => args[2] !== 'claude --version'
+      await pickProvider(wrapper, 'anthropic')
+      await pickProvider(wrapper, 'openai')
+      endRun('claude --version')
       await flushPromises()
       await generate()
 
@@ -294,22 +368,61 @@ describe('App', () => {
 
     it('has none when Claude connects after the user disconnected it', async () => {
       localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
-      const wrapper = await startApp({ ConnectClaude: true })
 
-      // When the Claude panel finds the CLI signed in, App checks the sign-in
-      // too. The user presses Disconnect before that check ends.
+      // The sign-in check at startup is still running when the user opens
+      // Settings, where the Claude panel's check finds the CLI signed in.
+      // The user presses Disconnect before the first check ends.
+      const finishStartupCheck = holdClaudeConnect()
+      const wrapper = await startApp({})
       const panel = await openClaudePanel(wrapper)
-      const finishClaudeConnect = holdClaudeConnect()
-      panel.vm.$emit('connected')
+      await button(panel, 'Disconnect').trigger('click')
       await flushPromises()
-      panel.vm.$emit('disconnected')
-      await flushPromises()
-      finishClaudeConnect()
+      finishStartupCheck()
       await flushPromises()
       await generate()
 
       expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
       expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Claude sign-in check', () => {
+    it('runs once when the user picks Claude in Settings', async () => {
+      // The real Claude provider, which runs its sign-in check through the
+      // shell plugin
+      const { createAnthropicProvider } = await vi.importActual('../../src/providers/anthropic-provider.js')
+      providers.anthropic = createAnthropicProvider()
+      // No provider is connected, so Settings opens
+      const wrapper = await startApp({})
+
+      await pickProvider(wrapper, 'anthropic')
+
+      // The Claude panel checks that the CLI is installed, and the sign-in
+      // is checked once
+      expect(timesRun('claude --version')).toBe(1)
+      expect(timesRun('claude auth status')).toBe(1)
+      expect(wrapper.findComponent(ConnectClaude).text()).toContain('Connected')
+
+      // Claude is connected and generates the game
+      await generate()
+      expect(wrapper.findComponent(GameContainer).props('game').title).toBe('Pong')
+    })
+
+    it('connects Claude when Settings is closed before the check ends', async () => {
+      const wrapper = await startApp({})
+
+      // The user picks Claude and closes Settings while the sign-in check is
+      // still running
+      const finishClaudeConnect = holdClaudeConnect()
+      await pickProvider(wrapper, 'anthropic')
+      await button(wrapper, 'Close').trigger('click')
+      await flushPromises()
+      expect(wrapper.findComponent(ConnectClaude).exists()).toBe(false)
+      finishClaudeConnect()
+      await flushPromises()
+      await generate()
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
     })
   })
 

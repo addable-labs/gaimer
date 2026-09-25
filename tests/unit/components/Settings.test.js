@@ -7,10 +7,14 @@ import { usePersistedStore } from '../../../src/stores/persisted-store.js'
 
 const registry = { get: () => ({ listModels: async () => [] }) }
 
+async function connectClaude() {
+  return { success: true }
+}
+
 // Opens Settings the way App does: it is mounted closed, then shown
 async function openSettings(providers = registry) {
   const wrapper = mount(Settings, {
-    props: { registry: providers, modelValue: false },
+    props: { registry: providers, connectClaude, modelValue: false },
     global: { plugins: [Quasar], stubs: { ConnectClaude: true } },
   })
   await wrapper.setProps({ modelValue: true })

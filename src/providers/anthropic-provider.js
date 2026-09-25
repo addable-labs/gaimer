@@ -56,10 +56,15 @@ export function createAnthropicProvider() {
             const call = ++calls;
             let signedIn = false;
             try {
+                // The Claude CLI exits with code 1 when it is not signed
+                // in, and prints its status as usual
                 const output = await shellExec(
                     "claude auth status",
                     10000
-                );
+                ).catch((err) => {
+                    if (err?.stdout?.includes('"loggedIn"')) return err.stdout;
+                    throw err;
+                });
                 const trimmed = output.trim();
                 signedIn =
                     trimmed.includes('"loggedIn": true') ||

@@ -36,18 +36,30 @@ let connectionChanges = 0;
 // longer active, so generating asks the user to open Settings. (OpenAI's
 // connect fails only without an API key, which is checked first.)
 async function connectActiveProvider() {
-    const change = ++connectionChanges;
     const id = selectedProvider.value;
+    if (id === "anthropic") {
+        await connectClaude();
+        return;
+    }
 
+    const change = ++connectionChanges;
     if (id === "openai" && apiKey.value) {
         const result = await openaiProvider.connect({ apiKey: apiKey.value });
         if (change !== connectionChanges) return;
         if (result.success) {
             registry.setActive("openai");
         }
-    } else if (id === "anthropic") {
-        const result = await anthropicProvider.connect();
-        if (change !== connectionChanges) return;
+    }
+}
+
+// Check Claude's sign-in, connect Claude if the CLI is signed in, and
+// return the result. The Claude panel in Settings runs its sign-in check
+// through this and shows the result. Running it here connects Claude even
+// when the panel is closed before the check ends.
+async function connectClaude() {
+    const change = ++connectionChanges;
+    const result = await anthropicProvider.connect();
+    if (change === connectionChanges) {
         if (result.success) {
             registry.setActive("anthropic");
         } else {
@@ -55,6 +67,7 @@ async function connectActiveProvider() {
             registry.deactivate("anthropic");
         }
     }
+    return result;
 }
 
 // Disconnect a provider. It is then no longer active, so until another
@@ -74,7 +87,7 @@ watch(apiKey, async () => {
     await connectActiveProvider();
 });
 
-// Handle provider switching or connection events from Settings/ConnectClaude
+// Handle the user picking a provider in Settings
 async function onProviderChanged(id) {
     // Disconnect previous provider if switching away
     const prev = registry.getActive();
@@ -82,8 +95,9 @@ async function onProviderChanged(id) {
         await disconnectProvider(prev);
     }
 
-    // Always run the full connect flow to ensure both the provider object
-    // and the registry are properly wired up
+    // Settings then shows the Claude panel, which checks the sign-in
+    // through connectClaude
+    if (id === "anthropic") return;
     await connectActiveProvider();
 }
 
@@ -294,7 +308,7 @@ watch(gameDescription, (newVal) => {
 
         <q-page-container>
             <q-page id="page" class="game-page">
-                <Settings v-model="showSettings" :registry="registry" @providerChanged="onProviderChanged" @providerDisconnected="onProviderDisconnected" />
+                <Settings v-model="showSettings" :registry="registry" :connectClaude="connectClaude" @providerChanged="onProviderChanged" @providerDisconnected="onProviderDisconnected" />
 
                 <div v-if="state !== 'done'" class="status-container">
                     <div class="text-center q-pa-md">

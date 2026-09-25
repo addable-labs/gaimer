@@ -63,11 +63,13 @@ describe('main window capability', () => {
   })
 
   describe('shell-cmd', () => {
-    it('runs the Claude panel\'s checks of the CLI and its sign-in', async () => {
-      mount(ConnectClaude, { global: { plugins: [Quasar] } })
+    it('runs the Claude panel\'s check of the CLI', async () => {
+      // The panel has App check the sign-in through the provider (see the
+      // next test)
+      mount(ConnectClaude, { props: { connect: async () => ({ success: true }) }, global: { plugins: [Quasar] } })
       await flushPromises()
 
-      expect(shell.ran).toEqual([zsh('claude --version'), zsh('claude auth status')])
+      expect(shell.ran).toEqual([zsh('claude --version')])
     })
 
     it('runs the provider\'s sign-in check and a game generation with each Claude model', async () => {

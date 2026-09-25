@@ -4,6 +4,12 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { shellExec } from "../helpers/shell.js";
 
+const props = defineProps({
+    // Checks the CLI's sign-in and connects Claude if it is signed in.
+    // Resolves to { success }.
+    connect: { type: Function, required: true },
+});
+
 const emit = defineEmits(["connected", "disconnected"]);
 
 // State machine: checking → not_installed | not_authenticated | authenticating | connected
@@ -12,6 +18,10 @@ const cliVersion = ref("");
 
 async function checkAvailability() {
     phase.value = "checking";
+    // Start the sign-in check at once, alongside the CLI check below.
+    // Started after it, the check could connect Claude after the user has
+    // picked another provider.
+    const signIn = props.connect();
 
     // Step 1: Check if claude CLI is installed
     try {
@@ -23,23 +33,20 @@ async function checkAvailability() {
     }
 
     // Step 2: Check if authenticated
-    await checkAuth();
+    await showSignIn(signIn);
 }
 
 async function checkAuth() {
-    try {
-        const output = await shellExec("claude auth status", 10000);
-        if (
-            output.includes('"loggedIn": true') ||
-            output.includes('"loggedIn":true') ||
-            output.includes("Logged in")
-        ) {
-            phase.value = "connected";
-            emit("connected");
-        } else {
-            phase.value = "not_authenticated";
-        }
-    } catch {
+    await showSignIn(props.connect());
+}
+
+// Show the result of a sign-in check
+async function showSignIn(check) {
+    const { success } = await check;
+    if (success) {
+        phase.value = "connected";
+        emit("connected");
+    } else {
         phase.value = "not_authenticated";
     }
 }

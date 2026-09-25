@@ -10,8 +10,10 @@ export const shell = {
   // What a started process prints, given its { cmd, args }
   output: () => '',
   // Whether a started process exits once it has printed, given its
-  // { cmd, args }; one that does not keeps running until it is killed
+  // { cmd, args }; one that does not keeps running
   exits: () => true,
+  // Each process that keeps running, as { process, exit }; exit() ends it
+  running: [],
   // { cmd, args } of each process a script asked the plugin to kill
   killed: [],
 }
@@ -73,7 +75,9 @@ export class Command extends Emitter {
   async spawn() {
     const process = this.run('spawn')
     this.stdout.emit('data', shell.output(process))
-    if (shell.exits(process)) this.emit('close', { code: 0, signal: null })
+    const exit = () => this.emit('close', { code: 0, signal: null })
+    if (shell.exits(process)) exit()
+    else shell.running.push({ process, exit })
     return new Child(shell.ran.length, process)
   }
 

@@ -6,6 +6,8 @@ import ConnectClaude from "./ConnectClaude.vue";
 
 const props = defineProps({
     registry: { type: Object, required: true },
+    // Checks Claude's sign-in and connects Claude, for the Claude panel
+    connectClaude: { type: Function, required: true },
 });
 
 const persistedStore = usePersistedStore();
@@ -55,8 +57,8 @@ function selectProvider(id) {
     fetchModels(id);
 }
 
+// The panel's sign-in check has connected Claude already
 function onClaudeConnected() {
-    emit("providerChanged", "anthropic");
     fetchModels("anthropic");
 }
 
@@ -151,6 +153,7 @@ watch(model, (visible) => {
             <!-- Anthropic Claude settings -->
             <q-card-section v-if="providerChoice === 'anthropic'" class="q-pt-md">
                 <ConnectClaude
+                    :connect="connectClaude"
                     @connected="onClaudeConnected"
                     @disconnected="onClaudeDisconnected"
                 />

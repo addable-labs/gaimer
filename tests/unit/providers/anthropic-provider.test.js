@@ -73,6 +73,26 @@ describe('Anthropic Provider', () => {
       expect(provider.isConnected()).toBe(true)
     })
 
+    it('says to sign in when the Claude CLI exits with code 1 because it is signed out', async () => {
+      // The CLI prints its status as usual
+      shellExec.mockRejectedValueOnce(Object.assign(new Error('Exit code 1'), { stdout: signedOut }))
+
+      expect(await provider.connect()).toEqual({
+        success: false,
+        error: 'Not logged in. Run "claude auth login" in your terminal.',
+      })
+      expect(provider.isConnected()).toBe(false)
+    })
+
+    it('says to install the Claude CLI when the login shell does not find it', async () => {
+      shellExec.mockRejectedValueOnce(Object.assign(new Error('zsh:1: command not found: claude'), { stdout: '' }))
+
+      expect(await provider.connect()).toEqual({
+        success: false,
+        error: 'Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code',
+      })
+    })
+
     it('is not connected once a later check finds the CLI signed out', async () => {
       shellExec.mockResolvedValueOnce(signedIn)
       await provider.connect()
