@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { Quasar, QBtnToggle, QSelect } from 'quasar'
 import Settings from '../../../src/components/Settings.vue'
 import { usePersistedStore } from '../../../src/stores/persisted-store.js'
+import { createOpenAIProvider } from '../../../src/providers/openai-provider.js'
 
 const registry = { get: () => ({ listModels: async () => [] }) }
 
@@ -84,5 +85,22 @@ describe('Settings', () => {
 
     await pickProvider(wrapper, 'openai')
     expect(modelSelect(wrapper).props('options')).toEqual(['gpt-4o'])
+  })
+
+  it('offers the GPT-5 models and keeps the one picked after a restart', async () => {
+    const providers = { get: (id) => (id === 'openai' ? createOpenAIProvider() : registry.get(id)) }
+    const wrapper = await openSettings(providers)
+    expect(modelSelect(wrapper).props('options')).toEqual(expect.arrayContaining([
+      'gpt-4o', 'gpt-5.1', 'gpt-5.2', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
+      'gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+    ]))
+
+    modelSelect(wrapper).vm.$emit('update:modelValue', 'gpt-5.6-sol')
+    await flushPromises()
+
+    // The app starts again with what it saved
+    setActivePinia(createPinia())
+    expect(usePersistedStore().selectedModels.openai).toBe('gpt-5.6-sol')
+    expect(modelSelect(await openSettings(providers)).props('modelValue')).toBe('gpt-5.6-sol')
   })
 })
