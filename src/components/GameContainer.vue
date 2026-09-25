@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useAppStore } from "../stores/app-store.js";
 import { createSandbox } from "../engine/sandbox.js";
@@ -195,12 +195,13 @@ function handleWindowFocus() {
     });
 }
 
-// Handle visibility changes for pause/resume
+// Handle visibility changes for pause/resume. A game under the controls or
+// the rules stays paused until the player closes them.
 function handleVisibilityChange() {
     if (!sandbox) return;
     if (document.hidden) {
         sandbox.postMessage("pause", {});
-    } else {
+    } else if (!infoShown.value) {
         sandbox.postMessage("resume", {});
     }
 }
@@ -218,18 +219,30 @@ function fitGameToContainer() {
 // height a moment after the window resizes
 let resizeObserver = null;
 
-// Game info to display below the game canvas
-const gameInfo = ref([
-    { text: game.controls, icon: "mdi-gamepad-outline" },
-    { text: game.rules, icon: "mdi-book-open-variant-outline" },
-]);
+// The game's controls and rules, which the buttons below the game show
+const gameInfo = [
+    { title: "Controls", text: game.controls, icon: "mdi-gamepad-outline" },
+    { title: "Rules", text: game.rules, icon: "mdi-book-open-variant-outline" },
+];
+// The controls or the rules, shown in a dialog while infoShown is true. They
+// stay in it while it fades out.
+const shownInfo = ref(gameInfo[0]);
+const infoShown = ref(false);
 
-const displayNotification = (message) => {
-    $q.notify({
-        message: message,
-        position: "top",
-    });
-};
+// Shows the controls or the rules in a dialog, which stays open until the
+// player closes it, so that a long text can be read, on a phone too. On a
+// desktop, holding the mouse over a button still shows its text in a tooltip.
+function showInfo(info) {
+    shownInfo.value = info;
+    infoShown.value = true;
+}
+
+// The dialog covers the game, so the game is paused until the player closes
+// it
+watch(infoShown, (shown) => {
+    if (!sandbox) return;
+    sandbox.postMessage(shown ? "pause" : "resume", {});
+});
 
 onMounted(() => {
     loadGameScript();
@@ -263,7 +276,8 @@ onBeforeUnmount(() => {
             flat
             dense
             :icon="item.icon"
-            @click="displayNotification(item.text)"
+            :aria-label="item.title"
+            @click="showInfo(item)"
         >
             <q-tooltip
                 :delay="500"
@@ -287,6 +301,27 @@ onBeforeUnmount(() => {
             <q-tooltip :delay="500">Save game</q-tooltip>
         </q-btn>
     </div>
+    <!-- The controls or the rules. A tap or click outside closes it too. -->
+    <q-dialog v-model="infoShown">
+        <q-card style="width: 480px; max-width: 92vw">
+            <q-card-section class="row items-center no-wrap">
+                <q-icon :name="shownInfo.icon" color="primary" size="sm" class="q-mr-sm" />
+                <div class="text-h6">{{ shownInfo.title }}</div>
+            </q-card-section>
+
+            <q-card-section class="q-pt-none text-body1 game-info-text">{{ shownInfo.text }}</q-card-section>
+
+            <q-card-actions align="right">
+                <q-btn
+                    flat
+                    no-caps
+                    label="Close"
+                    color="grey-5"
+                    @click="infoShown = false"
+                />
+            </q-card-actions>
+        </q-card>
+    </q-dialog>
     </div>
 </template>
 
@@ -313,5 +348,10 @@ onBeforeUnmount(() => {
     gap: 4px;
     padding: 4px 8px;
     background: #1a1a1a;
+}
+
+/* Keeps the line breaks the text may have */
+.game-info-text {
+    white-space: pre-line;
 }
 </style>

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { Quasar, QBtn, QBtnToggle, QSpinnerGears } from 'quasar'
@@ -1863,6 +1865,84 @@ describe('App', () => {
         getChangePrompt(game, 'Make it faster', ['A game of Tetris']),
         getChangePrompt(game, 'Make it faster', []),
       ])
+    })
+  })
+  // An iPhone's screen has the status bar, with the Dynamic Island or the
+  // notch, at the top, and the home indicator at the bottom. The app draws
+  // under them (viewport-fit=cover), and keeps its content clear of them by
+  // the insets iOS gives the page: here an iPhone 14 Pro's, upright.
+  describe('on an iPhone', () => {
+    const insets = { top: 59, bottom: 34 }
+    let styles
+
+    // A computed length in pixels, or as it is if it is not in pixels:
+    // happy-dom gives a calc() as it is written, with the lengths of its
+    // variables in it
+    function px(length) {
+      const terms = length.replace(/^calc\((.*)\)$/, '$1').split(' ')
+      if (!terms.every((term, i) => (i % 2 ? /^[+-]$/ : /^\d+px$/).test(term))) return length
+      return terms.reduce((sum, term, i) => (i % 2 ? sum : sum + (terms[i - 1] === '-' ? -1 : 1) * parseInt(term)), 0)
+    }
+
+    beforeEach(async () => {
+      // The app's own styles (the tests have none of Quasar's), with the
+      // insets that env() gives on the phone
+      styles = document.head.appendChild(document.createElement('style'))
+      styles.textContent = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf-8')
+      document.documentElement.style.setProperty('--safe-area-top', `${insets.top}px`)
+      document.documentElement.style.setProperty('--safe-area-bottom', `${insets.bottom}px`)
+      // The phone's width, at which the drawer covers the whole screen.
+      // Quasar reads it on a resize, after a moment.
+      window.happyDOM.setViewport({ width: 393, height: 852 })
+      window.dispatchEvent(new Event('resize'))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    afterEach(async () => {
+      styles.remove()
+      document.documentElement.style.removeProperty('--safe-area-top')
+      document.documentElement.style.removeProperty('--safe-area-bottom')
+      window.happyDOM.setViewport({ width: 1024, height: 768 })
+      window.dispatchEvent(new Event('resize'))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    it('keeps its header, footer and drawer clear of the status bar and the home indicator', async () => {
+      const wrapper = await startApp({ Settings: true }, { attachTo: document.body })
+      // The drawer covers the whole height of the phone's screen
+      await wrapper.find('[aria-label="Menu"]').trigger('click')
+      const drawer = document.querySelector('.q-drawer')
+      expect(drawer.classList).toContain('q-drawer--mobile')
+
+      expect({
+        header: px(getComputedStyle(document.querySelector('.q-header')).paddingTop),
+        footer: px(getComputedStyle(document.querySelector('.q-footer')).paddingBottom),
+        drawer: px(getComputedStyle(drawer.querySelector('.q-drawer__content')).paddingTop),
+        // Below the drawer's Settings button, at its bottom
+        drawerSettings: px(getComputedStyle(wrapper.find('[aria-label="Settings"]').element.closest('.q-item')).paddingBottom),
+      }).toEqual({ header: insets.top, footer: insets.bottom, drawer: insets.top, drawerSettings: 16 + insets.bottom })
+    })
+
+    it('shows dialogs 24 px from the status bar and the home indicator, and notifications below the status bar', async () => {
+      // No provider connects, so Settings opens
+      const wrapper = await startApp({}, { attachTo: document.body })
+      const dialog = document.querySelector('.q-dialog__inner')
+      expect(dialog.textContent).toContain('Settings')
+      // At the top, as the game's notifications are
+      const dismiss = wrapper.vm.$q.notify({ message: 'Game saved', position: 'top' })
+      await flushPromises()
+
+      expect({
+        dialogTop: px(getComputedStyle(dialog).paddingTop),
+        dialogBottom: px(getComputedStyle(dialog).paddingBottom),
+        notifications: px(getComputedStyle(document.querySelector('.q-notifications__list--top')).top),
+      }).toEqual({ dialogTop: 24 + insets.top, dialogBottom: 24 + insets.bottom, notifications: insets.top })
+      dismiss()
+
+      // While the keyboard is up, which Quasar marks the dialog for on iOS, it
+      // covers the home indicator: the dialog ends 24 px above the keyboard
+      dialog.classList.add('q-dialog__inner--keyboard')
+      expect(px(getComputedStyle(dialog).paddingBottom)).toBe(24)
     })
   })
 })

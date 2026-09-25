@@ -433,6 +433,82 @@ describe('GameContainer', () => {
     })
   })
 
+  // The buttons below the game show its controls and its rules in a dialog,
+  // which stays until the player closes it
+  describe('the controls and the rules', () => {
+    // The dialog shown, or null
+    function dialog() {
+      return document.querySelector('.q-dialog')
+    }
+
+    // A tap or a click outside the dialog, on its backdrop. The press closes
+    // it (a tap sends a mousedown too).
+    function tapOutside() {
+      const backdrop = dialog().querySelector('.q-dialog__backdrop')
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        backdrop.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0 }))
+      }
+    }
+
+    it('shows the rules until the player closes them', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+
+      await wrapper.find('[aria-label="Rules"]').trigger('click')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(dialog()).not.toBeNull()
+      expect(dialog().textContent).toContain('Rules')
+      expect(dialog().textContent).toContain('Catch the stars')
+      // A minute on, as long as it takes to read them
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(dialog().textContent).toContain('Catch the stars')
+      expect(notifications()).not.toContain('Catch the stars')
+
+      const buttons = [...dialog().querySelectorAll('button')]
+      buttons.find((button) => button.textContent.trim() === 'Close').click()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(dialog()).toBeNull()
+    })
+
+    it('shows the controls, and closes them at a tap outside', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+
+      await wrapper.find('[aria-label="Controls"]').trigger('click')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(dialog()).not.toBeNull()
+      expect(dialog().textContent).toContain('Controls')
+      expect(dialog().textContent).toContain('Arrow keys')
+
+      tapOutside()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(dialog()).toBeNull()
+    })
+
+    it('pauses the game while they are shown, also when the app comes back from the background', async () => {
+      const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const { game, received } = playGame(wrapper, { score: 0 })
+      sendFromGame(game, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(100)
+      const pauses = () => received.map((message) => message.type).filter((type) => type === 'pause' || type === 'resume')
+      expect(pauses()).toEqual([])
+
+      await wrapper.find('[aria-label="Rules"]').trigger('click')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(pauses()).toEqual(['pause'])
+
+      // The user is in another app for a while, and comes back to the rules
+      hidden.mockReturnValue(true)
+      document.dispatchEvent(new Event('visibilitychange'))
+      hidden.mockReturnValue(false)
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(pauses()).toEqual(['pause', 'pause'])
+
+      tapOutside()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(pauses()).toEqual(['pause', 'pause', 'resume'])
+    })
+  })
+
   // Key presses reach the game only while it has the keyboard focus. A click
   // on the game gives it the focus, but not when the game's own pointerdown
   // handler calls preventDefault(), as some games do.

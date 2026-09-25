@@ -581,7 +581,7 @@ watch(gameDescription, (newVal) => {
         >
             <GameList @loadGame="loadGame" @gameDeleted="onGameDeleted" />
 
-            <q-item v-ripple class="fixed-bottom q-pa-md">
+            <q-item v-ripple class="fixed-bottom q-pa-md safe-area-drawer-bottom">
                 <q-item-section>
                 </q-item-section>
                 <q-item-section side>
@@ -680,14 +680,6 @@ body {
 /* Hide scrollbars in Firefox */
 html {
     scrollbar-width: none;
-}
-
-/* iOS safe area support */
-.safe-area-header {
-    padding-top: var(--safe-area-top);
-}
-.safe-area-footer {
-    padding-bottom: var(--safe-area-bottom);
 }
 
 /* Game page fills available space */
