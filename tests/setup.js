@@ -1,5 +1,4 @@
 import { vi } from 'vitest'
-import 'fake-indexeddb/auto'
 
 // Node 25 and later define their own localStorage global, which is
 // undefined unless Node runs with --localstorage-file. Vitest then keeps it

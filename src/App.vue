@@ -241,7 +241,7 @@ onBeforeUnmount(() => { stopElapsedTimer(); });
 onMounted(async () => {
     try {
         await initStorage();
-        // Load game list after storage is ready (including migration)
+        // Load game list after storage is ready
         if (gameList.value.length === 0) {
             gameList.value = await listGames();
         }

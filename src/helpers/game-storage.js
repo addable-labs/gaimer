@@ -24,10 +24,8 @@ async function getStorageDir() {
     return storageDir;
 }
 
-const MIGRATED_FLAG = "migrated-from-indexeddb.txt";
-
 /**
- * Ensure the Gaimer storage directory exists, and migrate from IndexedDB if needed.
+ * Ensure the Gaimer storage directory exists.
  */
 export async function initStorage() {
     const dir = await getStorageDir();
@@ -45,58 +43,6 @@ export async function initStorage() {
         } catch {
             // Directory might already exist
         }
-    }
-    await migrateFromIndexedDB();
-}
-
-/**
- * One-time migration: copy all games from IndexedDB to filesystem.
- */
-async function migrateFromIndexedDB() {
-    const dir = await getStorageDir();
-    const flagPath = await join(dir, MIGRATED_FLAG);
-
-    // Skip if already migrated
-    try {
-        if (await exists(flagPath)) {
-            console.log("[migration] Already migrated, skipping");
-            return;
-        }
-    } catch {
-        // exists() might fail on scope — proceed with migration anyway
-    }
-
-    try {
-        const { default: IndexedDBClient } = await import("./indexeddb.js");
-        const idb = IndexedDBClient();
-        await idb.initDB();
-        const items = await idb.listItems();
-        console.log(`[migration] Found ${items.length} games in IndexedDB`);
-
-        if (items.length > 0) {
-            console.log(`[migration] Migrating to iCloud...`);
-            let migrated = 0;
-            for (const item of items) {
-                try {
-                    await saveGame(item);
-                    migrated++;
-                    console.log(`[migration] Migrated: ${item.id}`);
-                } catch (err) {
-                    console.error(`[migration] Failed to migrate game ${item.id}:`, err);
-                }
-            }
-            console.log(`[migration] Done: ${migrated}/${items.length} games migrated`);
-        }
-    } catch (err) {
-        console.error("[migration] IndexedDB migration failed:", err);
-        return; // Don't write sentinel if migration failed
-    }
-
-    // Write sentinel so we don't migrate again
-    try {
-        await writeTextFile(flagPath, new Date().toISOString());
-    } catch (err) {
-        console.warn("[migration] Could not write sentinel:", err?.message || err);
     }
 }
 
