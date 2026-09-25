@@ -120,6 +120,12 @@ describe('Anthropic Provider', () => {
     })
   })
 
+  describe('listModels', () => {
+    it('offers the Claude CLI\'s aliases, each for the latest model of its kind', async () => {
+      expect(await provider.listModels()).toEqual(['sonnet', 'opus', 'haiku'])
+    })
+  })
+
   it('has correct capabilities', () => {
     expect(provider.capabilities.streaming).toBe(false)
     expect(provider.capabilities.imageGeneration).toBe(false)
@@ -166,6 +172,14 @@ describe('Anthropic Provider', () => {
         'A game of pong'
       )
       expect(tempFiles['gaimer-system']).toBe('You write games.')
+    })
+
+    it('runs sonnet when no model is chosen', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+      await generate()
+
+      expect(shellExecWithInput.mock.lastCall[0]).toMatch(/^claude -p --model sonnet /)
     })
 
     it('starts no MCP servers from the Claude config', async () => {

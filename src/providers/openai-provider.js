@@ -42,21 +42,11 @@ export function createOpenAIProvider() {
             return connected;
         },
 
+        // Chat models that work with the request generateGame() sends: JSON
+        // mode, a temperature of 0.2 and max_tokens of 16384. Reasoning
+        // models such as o3 and gpt-5 reject the last two.
         async listModels() {
-            if (!client) return [];
-            try {
-                const response = await client.models.list();
-                const chatModels = [];
-                for await (const model of response) {
-                    if (model.id.startsWith("gpt-4") || model.id.startsWith("gpt-3.5")) {
-                        chatModels.push(model.id);
-                    }
-                }
-                chatModels.sort();
-                return chatModels;
-            } catch {
-                return ["gpt-4o", "gpt-4o-mini"];
-            }
+            return ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"];
         },
 
         async *generateGame(prompt, options = {}) {

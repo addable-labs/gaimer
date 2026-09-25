@@ -4,6 +4,15 @@ import { createCredentialStore } from "../credentials/credential-store.js";
 
 const credentials = createCredentialStore();
 
+// The Claude models earlier versions offered by their full names, and the
+// alias that replaced each: the Claude CLI's name for the latest model of
+// the same kind
+const claudeAliases = new Map([
+    ["claude-sonnet-4-6", "sonnet"],
+    ["claude-opus-4-6", "opus"],
+    ["claude-haiku-4-5", "haiku"],
+]);
+
 export const usePersistedStore = defineStore("persisted-store", () => {
     // OpenAI API key – loaded asynchronously from credential store
     const apiKey = ref("");
@@ -26,19 +35,24 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     }
 
     function loadSelectedModels() {
-        const models = { openai: "", anthropic: "" };
         const saved = loadStateFromLocalStorage("selectedModels");
-        if (saved) return { ...models, ...saved };
-
-        // One-time migration: earlier versions kept a single model for both
-        // providers. Give it to the provider it belongs to: Claude model
-        // names start with "claude", and every other one was OpenAI's.
-        const legacy = loadStateFromLocalStorage("selectedModel");
-        if (legacy) {
-            models[legacy.startsWith("claude") ? "anthropic" : "openai"] = legacy;
+        const models = { openai: "", anthropic: "", ...saved };
+        if (!saved) {
+            // One-time migration: earlier versions kept a single model for
+            // both providers. Give it to the provider it belongs to: Claude
+            // model names start with "claude", and every other one was
+            // OpenAI's.
+            const legacy = loadStateFromLocalStorage("selectedModel");
+            if (legacy) {
+                models[legacy.startsWith("claude") ? "anthropic" : "openai"] = legacy;
+            }
+            localStorage.removeItem("selectedModel");
         }
+
+        // A Claude model saved by its full name becomes its alias, which
+        // Settings offers now
+        models.anthropic = claudeAliases.get(models.anthropic) ?? models.anthropic;
         saveStateToLocalStorage("selectedModels", models);
-        localStorage.removeItem("selectedModel");
         return models;
     }
 

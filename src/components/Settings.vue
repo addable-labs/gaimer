@@ -46,8 +46,6 @@ async function handleSaveApiKey() {
     userInput.value = userInput.value.replace(/^\s+|\s+$/g, "");
     if (userInput.value === "") return;
     apiKey.value = userInput.value;
-    // Re-fetch models after key is saved (OpenAI needs it to connect)
-    setTimeout(() => fetchModels("openai"), 500);
 }
 
 function selectProvider(id) {

@@ -103,19 +103,16 @@ export function createAnthropicProvider() {
             return connected;
         },
 
+        // The Claude CLI's aliases, each for the latest model of its kind
         async listModels() {
-            return [
-                "claude-sonnet-4-6",
-                "claude-opus-4-6",
-                "claude-haiku-4-5",
-            ];
+            return ["sonnet", "opus", "haiku"];
         },
 
         async *generateGame(prompt, options = {}) {
             if (!connected)
                 throw new Error("Provider not connected");
 
-            const model = options.model || "claude-sonnet-4-6";
+            const model = options.model || "sonnet";
             const systemMessage = options.systemMessage || "";
 
             // Run Claude as a plain completion: Gaimer's system prompt

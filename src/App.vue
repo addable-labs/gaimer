@@ -133,11 +133,10 @@ const generateGame = async (prompt) => {
     startElapsedTimer();
 
     try {
-        const isAnthropic = provider.id === "anthropic";
-        const defaultModel = isAnthropic ? "claude-sonnet-4-6" : "gpt-4o";
+        // With no model chosen, the provider uses its default
         const generator = provider.generateGame(prompt, {
             systemMessage: getSystemMessage(),
-            model: selectedModels.value[provider.id] || defaultModel,
+            model: selectedModels.value[provider.id],
             maxTokens: 16384,
             temperature: 0.2,
         });

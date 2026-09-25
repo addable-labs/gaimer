@@ -135,6 +135,15 @@ describe('App', () => {
       expect(modelSentTo(providers.openai)).toBe('gpt-4o')
     })
 
+    it('leaves the model to the provider when none is chosen', async () => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      await startApp()
+
+      await generate()
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+      expect(modelSentTo(providers.anthropic)).toBeFalsy()
+    })
+
     it('does not send Claude a model picked for OpenAI before the update', async () => {
       // What the app saved when a user picked gpt-4o for OpenAI, then switched to Claude
       credentials.set('openai:apiKey', 'sk-test')

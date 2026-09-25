@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import { usePersistedStore } from '../../../src/stores/persisted-store.js'
+import { createAnthropicProvider } from '../../../src/providers/anthropic-provider.js'
 
 function saved(key) {
   const value = localStorage.getItem(key)
@@ -34,11 +35,11 @@ describe('persisted-store', () => {
     it('saves the model for each provider and loads it on the next start', async () => {
       const store = usePersistedStore()
       store.selectedModels.openai = 'gpt-4o-mini'
-      store.selectedModels.anthropic = 'claude-haiku-4-5'
+      store.selectedModels.anthropic = 'haiku'
       await nextTick()
 
       setActivePinia(createPinia())
-      expect(usePersistedStore().selectedModels).toEqual({ openai: 'gpt-4o-mini', anthropic: 'claude-haiku-4-5' })
+      expect(usePersistedStore().selectedModels).toEqual({ openai: 'gpt-4o-mini', anthropic: 'haiku' })
     })
   })
 
@@ -49,10 +50,10 @@ describe('persisted-store', () => {
       expect(store.selectedModels).toEqual({ openai: 'gpt-4o', anthropic: '' })
     })
 
-    it('gives a Claude model to the Claude provider', () => {
+    it('gives a Claude model to the Claude provider, as the alias of its kind', () => {
       localStorage.setItem('selectedModel', JSON.stringify('claude-opus-4-6'))
       const store = usePersistedStore()
-      expect(store.selectedModels).toEqual({ openai: '', anthropic: 'claude-opus-4-6' })
+      expect(store.selectedModels).toEqual({ openai: '', anthropic: 'opus' })
     })
 
     it('does not give an OpenAI model to Claude when Claude is the selected provider', () => {
@@ -74,6 +75,29 @@ describe('persisted-store', () => {
       localStorage.setItem('selectedModel', JSON.stringify('gpt-4o'))
       const store = usePersistedStore()
       expect(store.selectedModels).toEqual({ openai: 'gpt-4o-mini', anthropic: '' })
+    })
+  })
+
+  describe('Claude models saved by their full names', () => {
+    // The Claude models earlier versions offered, and the aliases the
+    // Claude CLI has for the latest model of each kind
+    const aliases = { 'claude-sonnet-4-6': 'sonnet', 'claude-opus-4-6': 'opus', 'claude-haiku-4-5': 'haiku' }
+
+    it('become the alias of their kind, which Settings offers', async () => {
+      const offered = await createAnthropicProvider().listModels()
+      for (const [model, alias] of Object.entries(aliases)) {
+        localStorage.setItem('selectedModels', JSON.stringify({ openai: 'gpt-4o', anthropic: model }))
+        setActivePinia(createPinia())
+
+        expect(usePersistedStore().selectedModels, model).toEqual({ openai: 'gpt-4o', anthropic: alias })
+        expect(saved('selectedModels'), model).toEqual({ openai: 'gpt-4o', anthropic: alias })
+        expect(offered).toContain(alias)
+      }
+    })
+
+    it('are the only models changed', () => {
+      localStorage.setItem('selectedModels', JSON.stringify({ openai: 'gpt-4o-2024-11-20', anthropic: 'opus' }))
+      expect(usePersistedStore().selectedModels).toEqual({ openai: 'gpt-4o-2024-11-20', anthropic: 'opus' })
     })
   })
 })

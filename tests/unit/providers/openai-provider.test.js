@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createOpenAIProvider } from '../../../src/providers/openai-provider.js'
 
+// The client the provider made last
+const openai = vi.hoisted(() => ({ client: null }))
+
 // Mock OpenAI SDK - must be a class since source uses `new OpenAI()`
 vi.mock('openai', () => {
   class MockOpenAI {
@@ -12,10 +15,23 @@ vi.mock('openai', () => {
           })
         }
       }
+      // Some of the models the API lists for a key: besides chat models,
+      // models for audio, realtime, transcription and web search, and
+      // older models that write at most 4096 tokens
+      this.models = {
+        list: vi.fn(async () => [
+          'gpt-3.5-turbo', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-audio-preview',
+          'gpt-4o-mini', 'gpt-4o-mini-transcribe', 'gpt-4o-realtime-preview', 'gpt-4o-search-preview',
+        ].map((id) => ({ id, object: 'model' }))),
+      }
+      openai.client = this
     }
   }
   return { default: MockOpenAI }
 })
+
+// The models the provider offers
+const offered = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini']
 
 describe('OpenAI Provider', () => {
   let provider
@@ -55,6 +71,26 @@ describe('OpenAI Provider', () => {
     await provider.connect({ apiKey: 'sk-test-key' })
     await provider.disconnect()
     expect(provider.isConnected()).toBe(false)
+  })
+
+  describe('listModels', () => {
+    it('offers its own short list, not every model the API lists for the key', async () => {
+      await provider.connect({ apiKey: 'sk-test-key' })
+      expect(await provider.listModels()).toEqual(offered)
+    })
+
+    it('offers the same models before an API key is saved', async () => {
+      expect(await provider.listModels()).toEqual(offered)
+    })
+
+    it('offers the model it generates with when none is chosen', async () => {
+      await provider.connect({ apiKey: 'sk-test-key' })
+      await provider.generateGame('A game of pong').next()
+
+      const { model } = openai.client.chat.completions.create.mock.lastCall[0]
+      expect(model).toBe('gpt-4o')
+      expect(await provider.listModels()).toContain(model)
+    })
   })
 
   it('has correct capabilities', () => {
