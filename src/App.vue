@@ -163,7 +163,8 @@ const generateGame = async (prompt) => {
 
         game.value = jsonResponse;
         loadedGame.value = timestamp;
-        gameList.value.push({
+        // The list shows the newest game first
+        gameList.value.unshift({
             id: timestamp,
             title: jsonResponse.title,
             description: jsonResponse.description,
@@ -202,6 +203,14 @@ const loadGame = async (id) => {
         debugMessage.value = error.message || String(error);
     }
 };
+
+// When the user deletes the open game, take it off the screen, since its
+// progress can no longer be saved. A new game being generated stays.
+function onGameDeleted(id) {
+    if (loadedGame.value !== id) return;
+    loadedGame.value = null;
+    if (state.value === "done") state.value = "idle";
+}
 
 const debugMessage = ref("no problems here!");
 const greetingMessage = `
@@ -289,7 +298,7 @@ watch(game, (newVal) => {
             overlay
             @click.stop="drawer = false"
         >
-            <GameList @loadGame="loadGame" />
+            <GameList @loadGame="loadGame" @gameDeleted="onGameDeleted" />
 
             <q-item v-ripple class="fixed-bottom q-pa-md">
                 <q-item-section>

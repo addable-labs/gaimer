@@ -5,6 +5,9 @@ import { Quasar } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
+import GameList from '../../src/components/GameList.vue'
+import GameContainer from '../../src/components/GameContainer.vue'
+import { listGames } from '../../src/helpers/game-storage.js'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
 
@@ -99,6 +102,24 @@ function holdClaudeConnect() {
     () => new Promise((resolve) => { finish = () => resolve(connect()) })
   )
   return () => finish()
+}
+
+// Keep Claude's next game generation running until the test ends it
+function holdClaudeGeneration() {
+  const generateGame = providers.anthropic.generateGame.getMockImplementation()
+  let finish
+  const finished = new Promise((resolve) => { finish = resolve })
+  providers.anthropic.generateGame.mockImplementationOnce(async function* (...args) {
+    await finished
+    yield* generateGame(...args)
+  })
+  return () => finish()
+}
+
+// What GameList tells App once the user has deleted a game
+async function deleteGame(wrapper, id) {
+  wrapper.findComponent(GameList).vm.$emit('gameDeleted', id)
+  await flushPromises()
 }
 
 enableAutoUnmount(afterEach)
@@ -254,6 +275,63 @@ describe('App', () => {
 
       expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
       expect(providers.anthropic.generateGame).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('game list', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+    })
+
+    it('puts a new game at the top, where the list shows the newest game', async () => {
+      listGames.mockResolvedValueOnce([
+        { id: '200', title: 'Snake' },
+        { id: '100', title: 'Tetris' },
+      ])
+      await startApp()
+
+      await generate()
+
+      expect(useAppStore().gameList.map((game) => game.title)).toEqual(['Pong', 'Snake', 'Tetris'])
+    })
+
+    it('goes back to the start screen when the open game is deleted', async () => {
+      const wrapper = await startApp()
+      await generate()
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
+
+      await deleteGame(wrapper, useAppStore().loadedGame)
+
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      expect(useAppStore().loadedGame).toBeNull()
+    })
+
+    it('keeps the open game when another game is deleted', async () => {
+      listGames.mockResolvedValueOnce([{ id: '100', title: 'Tetris' }])
+      const wrapper = await startApp()
+      await generate()
+      const openGame = useAppStore().loadedGame
+
+      await deleteGame(wrapper, '100')
+
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
+      expect(useAppStore().loadedGame).toBe(openGame)
+    })
+
+    it('keeps generating a new game when the game that was open is deleted', async () => {
+      const wrapper = await startApp()
+      await generate()
+      const openGame = useAppStore().loadedGame
+
+      const finishGenerating = holdClaudeGeneration()
+      await generate()
+      await deleteGame(wrapper, openGame)
+      expect(wrapper.text()).toContain('Generating game...')
+
+      finishGenerating()
+      await flushPromises()
+      expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
     })
   })
 })
