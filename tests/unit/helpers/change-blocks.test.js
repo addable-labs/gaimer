@@ -62,25 +62,42 @@ describe('parseChangeAnswer', () => {
     expect(parseChangeAnswer('"faster"')).toEqual({ ok: false, error: 'Response is not a JSON object' })
   })
 
-  it('does not take a whole game, which is the fallback\'s shape', () => {
-    // A game is what the request for the whole game asks for, and is read
-    // as a new game is
-    const wholeGame = JSON.stringify({ ...game, code: 'var speed = 8;' })
-    expect(safeParseGameJSON(wholeGame).ok).toBe(true)
+  it('gives a whole game, the shape the request for the whole game asks for, as the changed game, read as a new game is', () => {
+    const wholeGame = { ...game, code: 'var speed = 8;', explanation: 'The ball is faster' }
 
-    expect(parseChangeAnswer(wholeGame)).toEqual({
+    for (const answer of [JSON.stringify(wholeGame), '```json\n' + JSON.stringify(wholeGame) + '\n```']) {
+      expect(safeParseGameJSON(answer).data).toEqual(wholeGame)
+      expect(parseChangeAnswer(answer)).toEqual({ ok: true, data: { game: wholeGame } })
+    }
+  })
+
+  it('does not take an answer with no change blocks that is not a game', () => {
+    for (const answer of [{ title: 'Pong' }, { code: 'var speed = 8;' }, { title: 'Pong', code: '' }, {}]) {
+      expect(parseChangeAnswer(JSON.stringify(answer)), JSON.stringify(answer)).toEqual({
+        ok: false,
+        error: 'Missing required field: changes (a list of change blocks)',
+      })
+    }
+  })
+
+  it('does not take a game that also gives "changes", even when they are no list', () => {
+    const answer = { ...game, code: 'var speed = 8;', changes: null }
+
+    expect(parseChangeAnswer(JSON.stringify(answer))).toEqual({
       ok: false,
       error: 'Missing required field: changes (a list of change blocks)',
     })
   })
 
-  it('does not take the whole code next to change blocks', () => {
-    const answer = { changes: [{ find: 'var speed = 5;', replace: 'var speed = 8;' }], code: 'var speed = 8;' }
+  it('does not take the whole code next to change blocks, alone or in a whole game', () => {
+    const changes = [{ find: 'var speed = 5;', replace: 'var speed = 8;' }]
 
-    expect(parseChangeAnswer(JSON.stringify(answer))).toEqual({
-      ok: false,
-      error: 'The answer gives the whole code, not only change blocks',
-    })
+    for (const answer of [{ changes, code: 'var speed = 8;' }, { ...game, code: 'var speed = 8;', changes }]) {
+      expect(parseChangeAnswer(JSON.stringify(answer)), JSON.stringify(answer)).toEqual({
+        ok: false,
+        error: 'The answer gives the whole code, not only change blocks',
+      })
+    }
   })
 
   it('does not take a change block with an empty find, or none', () => {

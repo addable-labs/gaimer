@@ -267,9 +267,11 @@ function requestsOf(saved) {
 }
 
 // Ask a provider to change a saved game, and return the changed game. The
-// model answers with change blocks, which are made to the game. When they
-// cannot be read or made, the model is asked once for the whole game,
-// unless the user has left the game meanwhile: then null is returned.
+// model answers with change blocks, which are made to the game, or with the
+// whole game, changed, which is taken as it is. When the answer is neither,
+// or its change blocks cannot be made, the model is asked once for the
+// whole game, unless the user has left the game meanwhile: then null is
+// returned.
 async function requestChange(provider, model, id, saved, request) {
     const read = safeParseGameJSON(saved.content);
     if (!read.ok) throw new Error(read.error);
@@ -278,12 +280,13 @@ async function requestChange(provider, model, id, saved, request) {
 
     try {
         const answer = await requestGame(provider, getChangePrompt(current, request, requests), model, parseChangeAnswer);
+        if (answer.game) return answer.game;
         const changed = applyChanges(current, answer);
         if (changed.ok) return changed.game;
         console.warn(`The changes could not be made (${changed.error}), so the whole game is asked for`);
     } catch (error) {
-        // Only an answer that is not change blocks: a request that failed
-        // fails the change
+        // Only an answer that cannot be read: a request that failed fails
+        // the change
         if (!(error instanceof AnswerFormatError)) throw error;
         console.warn(`${error.message}, so the whole game is asked for`);
     }

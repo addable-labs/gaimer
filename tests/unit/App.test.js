@@ -1109,10 +1109,12 @@ describe('App', () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {})
     })
 
-    // Starts the app with its game container, and generates a game of Pong,
-    // which is then the open game. Returns the app and the game's id.
-    async function startWithPong() {
-      answerWith(providers.anthropic, pong)
+    // Starts the app with its game container, and generates a game of Pong
+    // with the provider selected, which is then the open game. A test that
+    // selects another provider than Claude gives it. Returns the app and the
+    // game's id.
+    async function startWithPong(provider = providers.anthropic) {
+      answerWith(provider, pong)
       const wrapper = await startAppWithGames()
       await generate()
       return { wrapper, id: useAppStore().loadedGame }
@@ -1180,6 +1182,31 @@ describe('App', () => {
       expect(button(wrapper, 'Undo change')).toBeDefined()
     })
 
+    it.each(['anthropic', 'openai'])('takes the whole game, when %s answers a change with it, as the changed game: it asks for nothing more, and shows and saves it as the new version', async (providerId) => {
+      localStorage.setItem('selectedProvider', JSON.stringify(providerId))
+      credentials.set('openai:apiKey', 'sk-test')
+      const provider = providers[providerId]
+      const { wrapper, id } = await startWithPong(provider)
+      answerWith(provider, fasterPong)
+
+      await send('Make the ball faster')
+
+      // The one request for the change, which asked for change blocks
+      const [, change] = requests(provider)
+      expect(requests(provider)).toHaveLength(2)
+      expect(change[0]).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong']))
+      expect(change[1].parse).toBe(parseChangeAnswer)
+      // The same game, changed: on screen, in the list, and in its file, with
+      // the version before kept
+      expect(gameOnScreen(wrapper)).toContain('var speed = 8;\nball(speed);')
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, title: 'Pong', rules: 'First to 7 wins' })])
+      expect(gameFiles()).toEqual({
+        [`${id}-pong.json`]: { ...fasterPong, ...pongFile(id, [{ game: pong, request: 'Make the ball faster' }]) },
+      })
+      expect(button(wrapper, 'Undo change')).toBeDefined()
+    })
+
     it('shows "Changing the game..." and the seconds, with the spinner, and takes no other request or undo until it ends', async () => {
       vi.useFakeTimers()
       const { wrapper } = await startWithPong()
@@ -1210,6 +1237,7 @@ describe('App', () => {
       ['has a block whose text is not in the code', { changes: [{ find: 'var speed = 6;', replace: 'var speed = 8;' }] }],
       ['has a block whose text is in the code twice', { changes: [{ find: 'speed', replace: 'pace' }] }],
       ['has blocks that overlap', { changes: [{ find: 'var speed = 5;', replace: 'var speed = 8;' }, { find: '5;\nball', replace: '5;\nballs' }] }],
+      ['gives the whole game and change blocks', { ...fasterPong, ...faster }],
     ])('asks once for the whole game, read as a new game is, when the answer %s', async (why, answer) => {
       const { wrapper, id } = await startWithPong()
       const wholeGame = { ...pong, code: 'var speed = 9;\nball(speed);' }
@@ -1367,12 +1395,16 @@ describe('App', () => {
       expect(button(wrapper, 'Retry')).toBeUndefined()
     })
 
-    it('sends a changed game that fails as it starts back once to the provider and model that made the change, and the fixed game replaces that version', async () => {
+    it.each([
+      ['change blocks', { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] }],
+      ['the whole game', { ...pong, code: 'var speed = 5;\ndrawBall(speed);' }],
+    ])('sends a changed game that fails as it starts, answered with %s, back once to the provider and model that made the change, and the fixed game replaces that version', async (shape, answer) => {
       const { wrapper, id } = await startWithPong()
       usePersistedStore().selectedModels.anthropic = 'opus'
-      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      answerWith(providers.anthropic, answer)
       await send('Make the ball round')
       const broken = { ...pong, code: 'var speed = 5;\ndrawBall(speed);' }
+      expect(requests(providers.anthropic)).toHaveLength(2)
       expect(gameOnScreen(wrapper)).toContain('drawBall(speed);')
 
       const fixed = { ...pong, code: 'var speed = 5;\nroundBall(speed);' }

@@ -1,8 +1,8 @@
-import { parseJSONObject } from "./json-utils.js";
+import { parseJSONObject, safeParseGameJSON } from "./json-utils.js";
 
 // The keys of a game that hold text, as the system message gives the game's
-// format: every key but "code", which a change answer changes only through
-// its change blocks
+// format: every key but "code", which an answer of change blocks changes
+// only through its blocks
 export const GAME_TEXT_KEYS = [
     "title", "description", "rules", "goals", "controls", "enemies", "levels",
     "obstacles", "player", "power-ups", "rewards", "other",
@@ -13,10 +13,12 @@ export const GAME_TEXT_KEYS = [
  * blocks, { "changes": [{ "find": "...", "replace": "..." }] }, and those
  * other keys of the game whose text changes. Only the shape is checked
  * here: applyChanges() checks the blocks against the game's code. Keys
- * that are not a game's are left out.
+ * that are not a game's are left out. An answer with no "changes" that
+ * reads as a game, as a new game is read, is the whole game, changed, and
+ * is given as { game }.
  *
  * @param {string} raw - Raw string from AI provider
- * @returns {{ ok: boolean, data?: { changes: Array<{ find: string, replace: string }>, keys: object }, error?: string }}
+ * @returns {{ ok: boolean, data?: { changes: Array<{ find: string, replace: string }>, keys: object } | { game: object }, error?: string }}
  */
 export function parseChangeAnswer(raw) {
     const result = parseJSONObject(raw);
@@ -24,6 +26,15 @@ export function parseChangeAnswer(raw) {
         return result;
     }
     const answer = result.data;
+
+    // The whole game, changed, in place of change blocks: asking for the
+    // whole game would only get it again
+    if (!("changes" in answer)) {
+        const game = safeParseGameJSON(raw);
+        if (game.ok) {
+            return { ok: true, data: { game: game.data } };
+        }
+    }
 
     if (!Array.isArray(answer.changes)) {
         return { ok: false, error: 'Missing required field: changes (a list of change blocks)' };

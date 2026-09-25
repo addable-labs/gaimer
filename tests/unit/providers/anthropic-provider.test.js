@@ -307,14 +307,23 @@ describe('Anthropic Provider', () => {
         expect(chunks).toEqual([{ type: 'complete', data: { changes: changes.changes, keys: {} } }])
       })
 
+      it('gives a whole game, given where change blocks were asked for, as the function reads it', async () => {
+        const fasterGame = { ...game, code: 'drawFast()' }
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(fasterGame)))
+
+        const chunks = await generate('Make the ball faster', { parse: parseChangeAnswer })
+
+        expect(chunks).toEqual([{ type: 'complete', data: { game: fasterGame } }])
+      })
+
       it('fails with an AnswerFormatError, saying why, when the function cannot read the answer', async () => {
-        // A whole game where change blocks were asked for
-        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+        // Change blocks and the whole code
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify({ ...game, ...changes })))
 
         const error = await generate('Make the ball faster', { parse: parseChangeAnswer }).catch((error) => error)
 
         expect(error).toBeInstanceOf(AnswerFormatError)
-        expect(error.message).toBe('Failed to parse game response: Missing required field: changes (a list of change blocks)')
+        expect(error.message).toBe('Failed to parse game response: The answer gives the whole code, not only change blocks')
       })
 
       it('fails with the Claude CLI\'s error, which is no AnswerFormatError, when the request fails', async () => {

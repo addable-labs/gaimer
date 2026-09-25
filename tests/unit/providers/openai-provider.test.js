@@ -246,11 +246,26 @@ describe('OpenAI Provider', () => {
       expect(value).toEqual({ type: 'complete', data: { changes: changes.changes, keys: { rules: 'First to 7 wins' } } })
     })
 
+    it('gives a whole game, given where change blocks were asked for, as the function reads it', async () => {
+      const fasterGame = { title: 'Pong', rules: 'First to 7 wins', code: 'drawFast()' }
+
+      const { value } = await answerWith(JSON.stringify(fasterGame), { ...options, parse: parseChangeAnswer })
+
+      expect(value).toEqual({ type: 'complete', data: { game: fasterGame } })
+    })
+
     it('fails with an AnswerFormatError, saying why, when the function cannot read the answer', async () => {
       const error = await answerWith('{"changes":[{"find":"","replace":"x"}]}', { ...options, parse: parseChangeAnswer }).catch((error) => error)
 
       expect(error).toBeInstanceOf(AnswerFormatError)
       expect(error.message).toBe('Failed to parse game response: Change block 1 has no text to find')
+
+      // Change blocks and the whole code
+      const both = JSON.stringify({ title: 'Pong', code: 'drawFast()', ...changes })
+      const bothError = await answerWith(both, { ...options, parse: parseChangeAnswer }).catch((error) => error)
+
+      expect(bothError).toBeInstanceOf(AnswerFormatError)
+      expect(bothError.message).toBe('Failed to parse game response: The answer gives the whole code, not only change blocks')
     })
 
     it('fails with an error that is no AnswerFormatError when the answer is cut off', async () => {
