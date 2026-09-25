@@ -1,18 +1,28 @@
 <script setup>
-import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { nextTick, onMounted, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useAppStore } from "./stores/app-store.js";
 import { usePersistedStore } from "./stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
 import { createAnthropicProvider } from "./providers/anthropic-provider.js";
-import { initStorage, saveGame, loadGame as loadGameFromFS, listGames, deleteGame } from "./helpers/game-storage.js";
+import {
+    initStorage,
+    saveGame,
+    loadGame as loadGameFromFS,
+    listGames,
+    deleteGame,
+    addGameVersion,
+    replaceGameVersion,
+    undoGameVersion,
+} from "./helpers/game-storage.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameList from "./components/GameList.vue";
 import GameContainer from "./components/GameContainer.vue";
-import { getFixPrompt, getSystemMessage } from "./helpers/prompts.js";
-import { safeParseGameJSON } from "./helpers/json-utils.js";
+import { getChangePrompt, getFixPrompt, getSystemMessage } from "./helpers/prompts.js";
+import { AnswerFormatError, safeParseGameJSON } from "./helpers/json-utils.js";
+import { applyChanges, parseChangeAnswer } from "./helpers/change-blocks.js";
 
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
@@ -111,7 +121,14 @@ const drawer = ref(false);
 const showSettings = ref(false);
 
 let game = ref({ id: "", prompts: [] });
-const lastPrompt = ref("");
+// How many earlier versions the open game has, for Undo change
+const earlierVersions = ref(0);
+const undoing = ref(false);
+// What the error banner's Retry does: the request that failed, again
+const retry = shallowRef(null);
+// Counts the games shown. Each game shown, and each version of it, gets a
+// GameContainer of its own, which loads the game when mounted.
+const gamesShown = ref(0);
 const elapsedSeconds = ref(0);
 let elapsedTimer = null;
 
@@ -125,13 +142,15 @@ function stopElapsedTimer() {
 }
 
 // Ask a provider for a game, and return it. With no model given, the
-// provider uses its default.
-async function requestGame(provider, prompt, model) {
+// provider uses its default. With a parse function, the provider reads its
+// answer with it, and what it reads is returned in place of a game.
+async function requestGame(provider, prompt, model, parse) {
     const generator = provider.generateGame(prompt, {
         systemMessage: getSystemMessage(),
         model,
         maxTokens: 16384,
         temperature: 0.2,
+        ...(parse && { parse }),
     });
 
     let jsonResponse = null;
@@ -147,6 +166,36 @@ async function requestGame(provider, prompt, model) {
     return jsonResponse;
 }
 
+// The game list's entry for a game
+function listEntry(id, shown) {
+    return {
+        id,
+        title: shown.title,
+        description: shown.description,
+        controls: shown.controls,
+        rules: shown.rules,
+    };
+}
+
+// Make a game the open game, and show it, with its number of earlier
+// versions
+function showGame(id, shown, versions) {
+    game.value = shown;
+    loadedGame.value = id;
+    earlierVersions.value = versions;
+    gamesShown.value++;
+}
+
+// Show a version of a game as the game storage returns it, and show it in
+// the list too. Returns the game.
+function showSavedGame(id, saved) {
+    const result = safeParseGameJSON(saved.content);
+    if (!result.ok) throw new Error(result.error);
+    showGame(id, result.data, saved.changeRequests.length);
+    gameList.value = gameList.value.map((item) => (item.id === id ? listEntry(id, result.data) : item));
+    return result.data;
+}
+
 // Save a new game, with the user's prompt, and make it the game to show.
 // Returns its id.
 async function addGame(prompt, jsonResponse) {
@@ -157,36 +206,34 @@ async function addGame(prompt, jsonResponse) {
         content: JSON.stringify(jsonResponse),
     });
 
-    game.value = jsonResponse;
-    loadedGame.value = timestamp;
+    showGame(timestamp, jsonResponse, 0);
     // The list shows the newest game first
-    gameList.value.unshift({
-        id: timestamp,
-        title: jsonResponse.title,
-        description: jsonResponse.description,
-        controls: jsonResponse.controls,
-        rules: jsonResponse.rules,
-    });
+    gameList.value.unshift(listEntry(timestamp, jsonResponse));
     return timestamp;
 }
 
-// The game generated last, from when it is shown until it has had its one
-// chance of a fix: its id, the user's prompt, the game, and the provider
-// and model that wrote it
+// The game generated or changed last, from when it is shown until it has
+// had its one chance of a fix: its id, the user's prompt for a new game or
+// request for a change, the game, and the provider and model that wrote it
 let newGame = null;
+
+// The error shown when no provider is connected
+function showNoProvider() {
+    state.value = "error";
+    debugMessage.value = "No AI provider connected. Open Settings to connect.";
+}
 
 // Generate a new game using the active provider
 const generateGame = async (prompt) => {
+    retry.value = () => generateGame(prompt);
     const provider = registry.getActive();
     if (!provider) {
-        state.value = "error";
-        debugMessage.value = "No AI provider connected. Open Settings to connect.";
+        showNoProvider();
         return;
     }
 
     state.value = "generating";
     generating.value = true;
-    lastPrompt.value = prompt;
     startElapsedTimer();
 
     try {
@@ -207,12 +254,101 @@ const generateGame = async (prompt) => {
     await nextTick();
 };
 
-// A new game that fails as it starts goes back once, with the error, to the
-// provider and model that wrote it, and the fixed game takes its place. A
-// game opened from the list or a fixed game does not, and neither does a
-// game whose provider the user has since switched from or disconnected:
-// the user sees its error, as with any game. If the fix fails, the user
-// sees why, as when generating fails.
+// The requests a saved game was made from, oldest first: the description,
+// which the game's file keeps as JSON, and each change
+function requestsOf(saved) {
+    let description = saved.prompt;
+    try {
+        description = JSON.parse(saved.prompt);
+    } catch {
+        // A description kept as it was typed
+    }
+    return [...(description && typeof description === "string" ? [description] : []), ...saved.changeRequests];
+}
+
+// Ask a provider to change a saved game, and return the changed game. The
+// model answers with change blocks, which are made to the game. When they
+// cannot be read or made, the model is asked once for the whole game,
+// unless the user has left the game meanwhile: then null is returned.
+async function requestChange(provider, model, id, saved, request) {
+    const read = safeParseGameJSON(saved.content);
+    if (!read.ok) throw new Error(read.error);
+    const current = read.data;
+    const requests = requestsOf(saved);
+
+    try {
+        const answer = await requestGame(provider, getChangePrompt(current, request, requests), model, parseChangeAnswer);
+        const changed = applyChanges(current, answer);
+        if (changed.ok) return changed.game;
+        console.warn(`The changes could not be made (${changed.error}), so the whole game is asked for`);
+    } catch (error) {
+        // Only an answer that is not change blocks: a request that failed
+        // fails the change
+        if (!(error instanceof AnswerFormatError)) throw error;
+        console.warn(`${error.message}, so the whole game is asked for`);
+    }
+
+    if (loadedGame.value !== id) return null;
+    return requestGame(provider, getChangePrompt(current, request, requests, { wholeGame: true }), model);
+}
+
+// Change the open game as the user asks, with the provider and model
+// selected now, and show the changed game, saved as the game's new version.
+// The request holds the game as it is saved. While the change runs, the
+// user can open another game, start a new one or delete this one: then the
+// answer is dropped, and nothing is saved. A provider switch does not stop
+// it: the change goes on with the provider it was sent to, as a new game
+// does. With undoFirst, the game first goes back to its version before the
+// last change: Retry does that when a changed game fails as it starts and
+// cannot be fixed.
+async function changeGame(request, { undoFirst = false } = {}) {
+    const id = loadedGame.value;
+    retry.value = () => changeGame(request, { undoFirst });
+    const provider = registry.getActive();
+    if (!provider) {
+        showNoProvider();
+        return;
+    }
+
+    newGame = null;
+    state.value = "changing";
+    generating.value = true;
+    startElapsedTimer();
+
+    try {
+        if (undoFirst) {
+            await undoGameVersion(id);
+            retry.value = () => changeGame(request);
+        }
+        const saved = await loadGameFromFS(id);
+        if (loadedGame.value !== id) return;
+        earlierVersions.value = saved.changeRequests.length;
+        const model = selectedModels.value[provider.id];
+        const changed = await requestChange(provider, model, id, saved, request);
+        if (loadedGame.value !== id) return;
+        const version = await addGameVersion(id, changed, request);
+        if (loadedGame.value !== id) return;
+        const shown = showSavedGame(id, version);
+        newGame = { id, request, jsonResponse: shown, provider, model };
+        state.value = "done";
+    } catch (error) {
+        if (loadedGame.value !== id) return;
+        console.error("Failed to change game:", error);
+        state.value = "error";
+        debugMessage.value = error.message || String(error);
+    } finally {
+        generating.value = false;
+        stopElapsedTimer();
+    }
+}
+
+// A new game or a changed game that fails as it starts goes back once, with
+// the error, to the provider and model that wrote it. The fixed game takes
+// the place of a new game, and of the version of a changed game. A game
+// opened from the list or a fixed game does not, and neither does a game
+// whose provider the user has since switched from or disconnected: the user
+// sees its error, as with any game. If the fix fails, the user sees why, as
+// when generating fails.
 async function fixGame(error) {
     const broken = newGame;
     newGame = null;
@@ -224,13 +360,27 @@ async function fixGame(error) {
 
     try {
         const fixed = await requestGame(broken.provider, getFixPrompt(broken.jsonResponse, error), broken.model);
-        // The fixed game is saved first, then the broken game is deleted,
-        // with any progress saved in it
-        await addGame(broken.prompt, fixed);
-        gameList.value = gameList.value.filter((item) => item.id !== broken.id);
-        state.value = "done";
-        await deleteGame(broken.id).catch((err) => console.warn("Failed to delete the game that was fixed:", err));
+        if (broken.request === undefined) {
+            // The fixed game is saved first, then the broken game is
+            // deleted, with any progress saved in it
+            await addGame(broken.prompt, fixed);
+            gameList.value = gameList.value.filter((item) => item.id !== broken.id);
+            state.value = "done";
+            await deleteGame(broken.id).catch((err) => console.warn("Failed to delete the game that was fixed:", err));
+        } else {
+            // A changed game stays the same game: the fixed game replaces
+            // the version that failed, unless the user has left the game
+            if (loadedGame.value !== broken.id) return;
+            const version = await replaceGameVersion(broken.id, fixed);
+            if (loadedGame.value !== broken.id) return;
+            showSavedGame(broken.id, version);
+            state.value = "done";
+        }
     } catch (err) {
+        if (broken.request !== undefined) {
+            if (loadedGame.value !== broken.id) return;
+            retry.value = () => changeGame(broken.request, { undoFirst: true });
+        }
         console.error("Failed to fix game:", err);
         state.value = "error";
         debugMessage.value = err.message || String(err);
@@ -238,6 +388,38 @@ async function fixGame(error) {
         generating.value = false;
         stopElapsedTimer();
     }
+}
+
+// "Undo change": go back to the open game's version before its last change.
+// The version it goes back from is dropped, and the game's saved progress
+// is deleted, as after a change.
+async function undoChange() {
+    const id = loadedGame.value;
+    newGame = null;
+    undoing.value = true;
+    try {
+        const version = await undoGameVersion(id);
+        if (loadedGame.value !== id) return;
+        showSavedGame(id, version);
+        state.value = "done";
+    } catch (error) {
+        if (loadedGame.value !== id) return;
+        console.error("Failed to undo the change:", error);
+        retry.value = null;
+        state.value = "error";
+        debugMessage.value = error.message || String(error);
+    } finally {
+        undoing.value = false;
+    }
+}
+
+// "New game": close the open game, so that the box makes a new game. A
+// change or fix of it that is still running is dropped when it ends.
+function closeGame() {
+    newGame = null;
+    loadedGame.value = null;
+    earlierVersions.value = 0;
+    state.value = "idle";
 }
 
 // Load selected game from filesystem and show it. While the file is being
@@ -248,16 +430,19 @@ const loadGame = async (id) => {
     newGame = null;
     state.value = "loading";
     loadedGame.value = id;
+    earlierVersions.value = 0;
     try {
         const item = await loadGameFromFS(id);
         if (loadedGame.value !== id) return;
-        const result = safeParseGameJSON(item.content);
-        if (!result.ok) throw new Error(result.error);
-        game.value = result.data;
+        showSavedGame(id, item);
         state.value = "done";
     } catch (error) {
         if (loadedGame.value !== id) return;
         console.error("Failed to load game:", id, error);
+        // A game that cannot be read is not open, so the box makes a new
+        // game, and there is nothing to retry
+        loadedGame.value = null;
+        retry.value = null;
         state.value = "error";
         debugMessage.value = error.message || String(error);
     }
@@ -265,12 +450,14 @@ const loadGame = async (id) => {
 
 // When the user deletes the open game, take it off the screen, since its
 // progress can no longer be saved. If the game is still being read, leave
-// "Loading game...": loadGame will not show it. A new game being generated
-// stays.
+// "Loading game...": loadGame will not show it. The same goes for a change
+// or a fix of the game that is still running, which then saves nothing,
+// and for an error. A new game being generated stays.
 function onGameDeleted(id) {
     if (loadedGame.value !== id) return;
     loadedGame.value = null;
-    if (state.value === "done" || state.value === "loading") state.value = "idle";
+    earlierVersions.value = 0;
+    if (state.value !== "generating") state.value = "idle";
 }
 
 const debugMessage = ref("");
@@ -306,13 +493,18 @@ onMounted(async () => {
     }
 });
 
-// Watch for new game descriptions from the user input
+// Watch for new game descriptions from the user input. With a game open,
+// the text is a request to change it.
 watch(gameDescription, (newVal) => {
     if (gameDescription.value == "") {
         return;
     }
 
-    generateGame(gameDescription.value);
+    if (loadedGame.value) {
+        changeGame(gameDescription.value);
+    } else {
+        generateGame(gameDescription.value);
+    }
     gameDescription.value = "";
 });
 </script>
@@ -332,6 +524,27 @@ watch(gameDescription, (newVal) => {
                 <q-toolbar-title v-if="state === 'done'" class="text-subtitle2 ellipsis">
                     {{ game.title }}
                 </q-toolbar-title>
+                <q-space v-else />
+                <q-btn
+                    v-if="loadedGame && earlierVersions > 0"
+                    flat
+                    dense
+                    no-caps
+                    icon="mdi-undo"
+                    label="Undo change"
+                    :disable="generating"
+                    :loading="undoing"
+                    @click="undoChange"
+                />
+                <q-btn
+                    v-if="loadedGame"
+                    flat
+                    dense
+                    no-caps
+                    icon="mdi-plus"
+                    label="New game"
+                    @click="closeGame"
+                />
             </q-toolbar>
         </q-header>
         <q-drawer
@@ -374,13 +587,18 @@ watch(gameDescription, (newVal) => {
                             <div class="text-body1 q-mb-sm">Generating game... ({{ elapsedSeconds }}s)</div>
                         </template>
 
-                        <!-- Fixing a new game that failed as it started, with timer -->
+                        <!-- Changing the open game, with timer -->
+                        <template v-if="state === 'changing'">
+                            <div class="text-body1 q-mb-sm">Changing the game... ({{ elapsedSeconds }}s)</div>
+                        </template>
+
+                        <!-- Fixing a new or changed game that failed as it started, with timer -->
                         <template v-if="state === 'fixing'">
                             <div class="text-body1 q-mb-sm">Fixing an error in the game... ({{ elapsedSeconds }}s)</div>
                         </template>
 
                         <q-spinner-gears
-                            v-if="state === 'generating' || state === 'fixing' || state === 'loading'"
+                            v-if="state === 'generating' || state === 'changing' || state === 'fixing' || state === 'loading'"
                             class="q-pa-lg"
                             color="primary"
                             size="8em"
@@ -395,22 +613,22 @@ watch(gameDescription, (newVal) => {
                                 {{ debugMessage }}
                             </q-banner>
                             <q-btn
-                                v-if="lastPrompt"
+                                v-if="retry"
                                 outline
                                 no-caps
                                 color="grey-5"
                                 label="Retry"
                                 icon="mdi-refresh"
-                                @click="generateGame(lastPrompt)"
+                                @click="retry()"
                             />
                         </template>
                     </div>
                 </div>
 
-                <!-- Each game gets a GameContainer of its own, which loads the game when mounted -->
+                <!-- Each game shown, and each version of it, gets a GameContainer of its own, which loads the game when mounted -->
                 <GameContainer
                     v-if="state === 'done'"
-                    :key="loadedGame"
+                    :key="gamesShown"
                     :game="game"
                     class="game-container-full"
                     @startError="fixGame"

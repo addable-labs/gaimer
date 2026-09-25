@@ -101,6 +101,24 @@ describe('UserInput', () => {
     expect(focused(wrapper)).toBe('nothing')
   })
 
+  it('asks for a game to make, and with a game open, for a change of the game', async () => {
+    const wrapper = showInput()
+    const label = () => wrapper.find('.q-field__label').text()
+    expect(label()).toBe('Describe your game...')
+
+    useAppStore().loadedGame = '1790000000000'
+    await flushPromises()
+    expect(label()).toBe('Change this game...')
+
+    // While the user types, the label counts the characters left
+    await field(wrapper).setValue('Make the ball faster')
+    expect(label()).toBe('4076 characters remaining')
+
+    useAppStore().loadedGame = null
+    await field(wrapper).setValue('')
+    expect(label()).toBe('Describe your game...')
+  })
+
   it('sends nothing when the field holds only whitespace', async () => {
     const wrapper = showInput()
     await field(wrapper).setValue(' \n\t ')

@@ -1,13 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { Quasar, QBtn, QBtnToggle } from 'quasar'
+import { Quasar, QBtn, QBtnToggle, QSpinnerGears } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import GameList from '../../src/components/GameList.vue'
 import GameContainer from '../../src/components/GameContainer.vue'
-import { listGames, loadGame as loadGameFromFS, saveGame, deleteGame as deleteGameFromFS } from '../../src/helpers/game-storage.js'
+import {
+  listGames,
+  loadGame as loadGameFromFS,
+  saveGame,
+  deleteGame as deleteGameFromFS,
+  addGameVersion,
+  replaceGameVersion,
+  undoGameVersion,
+} from '../../src/helpers/game-storage.js'
+import { AnswerFormatError, safeParseGameJSON } from '../../src/helpers/json-utils.js'
+import { parseChangeAnswer } from '../../src/helpers/change-blocks.js'
+import { getChangePrompt, getFixPrompt } from '../../src/helpers/prompts.js'
 import { quasarPlugins } from '../../src/quasar-plugins.js'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
@@ -26,15 +37,30 @@ vi.mock('../../src/providers/anthropic-provider.js', () => ({
 // Runs commands as the shell plugin would under the app's capability
 vi.mock('@tauri-apps/plugin-shell', () => import('../plugin-shell.js'))
 
-// The temp files the Claude provider writes for a game generation
+// A file system in memory, by path: the game folder, and the temp files the
+// Claude provider writes for a game generation
+const files = vi.hoisted(() => new Map())
 vi.mock('@tauri-apps/plugin-fs', () => ({
-  writeTextFile: vi.fn(async () => {}),
-  remove: vi.fn(async () => {}),
+  exists: vi.fn(async () => true),
+  mkdir: vi.fn(async () => {}),
+  writeTextFile: vi.fn(async (path, text) => { files.set(path, text) }),
+  readTextFile: vi.fn(async (path) => {
+    if (!files.has(path)) throw new Error(`No such file: ${path}`)
+    return files.get(path)
+  }),
+  readDir: vi.fn(async (dir) => [...files.keys()]
+    .filter((path) => path.slice(0, path.lastIndexOf('/')) === dir)
+    .map((path) => ({ name: path.slice(path.lastIndexOf('/') + 1), isFile: true }))),
+  remove: vi.fn(async (path) => { files.delete(path) }),
 }))
 vi.mock('@tauri-apps/api/path', () => ({
+  homeDir: vi.fn(async () => '/Users/player'),
   tempDir: vi.fn(async () => '/tmp'),
   join: vi.fn(async (...parts) => parts.join('/')),
 }))
+
+// The game folder
+const gamesFolder = '/Users/player/Library/Mobile Documents/com~apple~CloudDocs/Gaimer'
 
 // A fresh credential store for each test, so that no API key carries over
 const credentials = vi.hoisted(() => new Map())
@@ -47,18 +73,20 @@ vi.mock('../../src/credentials/credential-store.js', () => ({
   }),
 }))
 
-// The saved games in the game folder, by id, as the game storage returns them
-const savedGames = vi.hoisted(() => new Map())
-vi.mock('../../src/helpers/game-storage.js', () => ({
-  initStorage: vi.fn(async () => {}),
-  listGames: vi.fn(async () => []),
-  saveGame: vi.fn(async (game) => { savedGames.set(game.id, game) }),
-  loadGame: vi.fn(async (id) => {
-    if (!savedGames.has(id)) throw new Error(`Game not found: ${id}`)
-    return savedGames.get(id)
-  }),
-  deleteGame: vi.fn(async (id) => { savedGames.delete(id) }),
-}))
+// The game storage, on the file system in memory, with each of its
+// functions watched
+vi.mock('../../src/helpers/game-storage.js', async (importOriginal) => {
+  const storage = await importOriginal()
+  return Object.fromEntries(Object.entries(storage).map(([name, fn]) => [name, vi.fn(fn)]))
+})
+
+// Reads a provider's answer as the real providers do: as a game, or with the
+// caller's parse function. A game or other object stands for its JSON.
+function readAnswer(answer, options) {
+  const result = (options?.parse ?? safeParseGameJSON)(typeof answer === 'string' ? answer : JSON.stringify(answer))
+  if (!result.ok) throw new AnswerFormatError(result.error)
+  return result.data
+}
 
 // Like the real providers: a failed connect() leaves the provider not
 // connected, and generateGame() throws unless the provider is connected
@@ -77,9 +105,9 @@ function fakeProvider(id) {
     }),
     disconnect: vi.fn(async () => { connected = false }),
     isConnected: () => connected,
-    generateGame: vi.fn(async function* () {
+    generateGame: vi.fn(async function* (prompt, options) {
       if (!connected) throw new Error('Provider not connected')
-      yield { type: 'complete', data: { title: 'Pong', code: 'draw()' } }
+      yield { type: 'complete', data: readAnswer({ title: 'Pong', code: 'draw()' }, options) }
     }),
   }
   return provider
@@ -195,7 +223,14 @@ async function deleteGame(wrapper, id) {
 // Puts a game in the game folder, whose code calls a function named after it
 function addSavedGame(id, title) {
   const game = { title, code: `${title.toLowerCase()}()` }
-  savedGames.set(id, { id, prompt: JSON.stringify(`A game of ${title}`), content: JSON.stringify(game) })
+  files.set(`${gamesFolder}/${id}-${title.toLowerCase()}.json`, JSON.stringify({ ...game, id, prompt: JSON.stringify(`A game of ${title}`) }))
+}
+
+// The game folder's files, by name, with their data
+function gameFiles() {
+  return Object.fromEntries([...files]
+    .filter(([path]) => path.startsWith(`${gamesFolder}/`))
+    .map(([path, text]) => [path.slice(gamesFolder.length + 1), JSON.parse(text)]))
 }
 
 // What GameList tells App when the user picks a game in the list
@@ -232,22 +267,30 @@ function notifications() {
   return [...document.querySelectorAll('.q-notification')].map((n) => n.textContent).join()
 }
 
-// The provider answers its next request with the game when the test calls
-// the function returned. By the clock, answering takes the model a minute.
-function answerLater(provider, game) {
+// The provider answers its next request when the test calls the function
+// returned, with the answer: a game, change blocks, or other text, which it
+// reads as the real providers do. By the clock, answering takes the model a
+// minute.
+function answerLater(provider, answer) {
   let finish
   const finished = new Promise((resolve) => { finish = resolve })
-  provider.generateGame.mockImplementationOnce(async function* () {
+  provider.generateGame.mockImplementationOnce(async function* (prompt, options) {
     await finished
     vi.setSystemTime(Date.now() + 60_000)
-    yield { type: 'complete', data: game }
+    yield { type: 'complete', data: readAnswer(answer, options) }
   })
   return () => finish()
 }
 
-// The provider answers its next request with the game
-function answerWith(provider, game) {
-  answerLater(provider, game)()
+// The provider answers its next request with the answer
+function answerWith(provider, answer) {
+  answerLater(provider, answer)()
+}
+
+// The user presses New game in the toolbar
+async function pressNewGame(wrapper) {
+  await button(wrapper, 'New game').trigger('click')
+  await flushPromises()
 }
 
 enableAutoUnmount(afterEach)
@@ -256,7 +299,8 @@ describe('App', () => {
   beforeEach(() => {
     localStorage.clear()
     credentials.clear()
-    savedGames.clear()
+    files.clear()
+    vi.clearAllMocks()
     providers.openai = fakeProvider('openai')
     providers.anthropic = fakeProvider('anthropic')
     shell.ran = []
@@ -284,6 +328,7 @@ describe('App', () => {
       expect(modelSentTo(providers.anthropic)).toBe('claude-opus-4-6')
 
       await switchProvider(wrapper, 'openai')
+      await pressNewGame(wrapper)
       await generate()
       expect(modelSentTo(providers.openai)).toBe('gpt-4o')
     })
@@ -309,6 +354,7 @@ describe('App', () => {
       expect(modelSentTo(providers.anthropic)).not.toBe('gpt-4o')
 
       await switchProvider(wrapper, 'openai')
+      await pressNewGame(wrapper)
       await generate()
       expect(modelSentTo(providers.openai)).toBe('gpt-4o')
     })
@@ -428,7 +474,7 @@ describe('App', () => {
     })
 
     it('is OpenAI once the user saves an API key, and uses a new key as soon as it is saved', async () => {
-      await startApp()
+      const wrapper = await startApp()
 
       // What Settings does when the user saves a key
       usePersistedStore().apiKey = 'sk-first'
@@ -440,6 +486,7 @@ describe('App', () => {
 
       usePersistedStore().apiKey = 'sk-second'
       await flushPromises()
+      await pressNewGame(wrapper)
       await generate()
 
       expect(providers.openai.disconnect).toHaveBeenCalledOnce()
@@ -535,6 +582,7 @@ describe('App', () => {
       const openGame = useAppStore().loadedGame
 
       const finishGenerating = holdClaudeGeneration()
+      await pressNewGame(wrapper)
       await generate()
       await deleteGame(wrapper, openGame)
       expect(wrapper.text()).toContain('Generating game...')
@@ -542,6 +590,41 @@ describe('App', () => {
       finishGenerating()
       await flushPromises()
       expect(wrapper.findComponent(GameContainer).exists()).toBe(true)
+    })
+  })
+
+  describe('a new game retried while a saved game is open', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    it('keeps generating when that game is deleted', async () => {
+      addSavedGame('100', 'Tetris')
+      const wrapper = await startApp()
+
+      // The new game fails after the user has opened a saved game, and the
+      // user retries it
+      let fail
+      const failed = new Promise((resolve) => { fail = resolve })
+      providers.anthropic.generateGame.mockImplementationOnce(async function* () {
+        await failed
+        throw new Error('Claude CLI error: rate limited')
+      })
+      await generate()
+      await openGame(wrapper, '100')
+      fail()
+      await flushPromises()
+      const finishGenerating = holdClaudeGeneration()
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      await deleteGame(wrapper, '100')
+      expect(wrapper.text()).toContain('Generating game...')
+
+      finishGenerating()
+      await flushPromises()
+      expect(wrapper.findComponent(GameContainer).props('game').title).toBe('Pong')
     })
   })
 
@@ -619,7 +702,7 @@ describe('App', () => {
       const finishReading = holdGameRead()
       await openGame(wrapper, '100')
       // The game's file is gone by the time it is read
-      savedGames.delete('100')
+      files.delete(`${gamesFolder}/100-tetris.json`)
       await deleteGame(wrapper, '100')
       finishReading()
       await flushPromises()
@@ -631,7 +714,7 @@ describe('App', () => {
     it('shows why a saved game cannot be opened', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {})
       // A game file with no title
-      savedGames.set('100', { id: '100', prompt: '"A game of Tetris"', content: JSON.stringify({ code: 'tetris()' }) })
+      files.set(`${gamesFolder}/100-untitled.json`, JSON.stringify({ code: 'tetris()', id: '100', prompt: '"A game of Tetris"' }))
       const wrapper = await startApp()
 
       await openGame(wrapper, '100')
@@ -639,6 +722,10 @@ describe('App', () => {
       expect(wrapper.text()).toContain('Missing required field: title')
       expect(wrapper.text()).not.toContain('Loading game...')
       expect(wrapper.findComponent(GameContainer).exists()).toBe(false)
+      // It is not open, so the box makes a new game, and reading it again
+      // would fail again
+      expect(useAppStore().loadedGame).toBeNull()
+      expect(button(wrapper, 'Retry')).toBeUndefined()
     })
   })
 
@@ -903,6 +990,606 @@ describe('App', () => {
       expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
       expect(providers.openai.generateGame).not.toHaveBeenCalled()
       expect(gameOnScreen(wrapper)).toContain('drawBall()')
+    })
+  })
+
+  describe('changing the open game', () => {
+    // A game of Pong as the model writes it, the change blocks of a request
+    // to make its ball faster, and the game they make
+    const pong = { title: 'Pong', description: 'Two paddles and a ball', rules: 'First to 5 wins', code: 'var speed = 5;\nball(speed);' }
+    const faster = { changes: [{ find: 'var speed = 5;', replace: 'var speed = 8;' }], rules: 'First to 7 wins' }
+    const fasterPong = { ...pong, rules: 'First to 7 wins', code: 'var speed = 8;\nball(speed);' }
+    // What the game page reports when a game fails as it starts
+    const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:2:1' }
+
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+
+    // The user sends a request from the box
+    async function send(request) {
+      useAppStore().gameDescription = request
+      await flushPromises()
+    }
+
+    // Starts the app with its game container, and generates a game of Pong,
+    // which is then the open game. Returns the app and the game's id.
+    async function startWithPong() {
+      answerWith(providers.anthropic, pong)
+      const wrapper = await startAppWithGames()
+      await generate()
+      return { wrapper, id: useAppStore().loadedGame }
+    }
+
+    // What the game file of Pong holds, besides the game
+    function pongFile(id, versions) {
+      return { id, prompt: JSON.stringify('A game of pong'), versions }
+    }
+
+    // The requests sent to a provider, as [prompt, options]
+    function requests(provider) {
+      return provider.generateGame.mock.calls
+    }
+
+    // The provider fails its next request with the error when the test
+    // calls the function returned
+    function failLater(provider, error) {
+      let finish
+      const finished = new Promise((resolve) => { finish = resolve })
+      provider.generateGame.mockImplementationOnce(async function* () {
+        await finished
+        throw error
+      })
+      return () => finish()
+    }
+
+    // Keeps the next call of a game storage function running until the test
+    // ends it, and then runs it, or the stand-in given
+    function holdStorage(storageFunction, run = storageFunction.getMockImplementation()) {
+      let finish
+      storageFunction.mockImplementationOnce(
+        (...args) => new Promise((resolve, reject) => { finish = () => run(...args).then(resolve, reject) })
+      )
+      return () => finish()
+    }
+
+    async function pressUndo(wrapper) {
+      await button(wrapper, 'Undo change').trigger('click')
+      await flushPromises()
+    }
+
+    it('sends the game as saved, the requests it was made from and the new request to the provider and model selected now, and shows the changed game as its new version', async () => {
+      const { wrapper, id } = await startWithPong()
+      usePersistedStore().selectedModels.anthropic = 'opus'
+      answerWith(providers.anthropic, faster)
+
+      await send('Make the ball faster')
+
+      // A new call, with the system message and the model selected now, and
+      // the answer read as change blocks
+      const [first, change] = requests(providers.anthropic)
+      expect(requests(providers.anthropic)).toHaveLength(2)
+      expect(change[0]).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong']))
+      expect(change[1]).toEqual({ ...first[1], model: 'opus', parse: parseChangeAnswer })
+
+      // The same game, changed: on screen, in the list, and in its file, with
+      // the version before kept
+      expect(gameOnScreen(wrapper)).toContain('var speed = 8;\nball(speed);')
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, title: 'Pong', rules: 'First to 7 wins' })])
+      expect(gameFiles()).toEqual({
+        [`${id}-pong.json`]: { ...fasterPong, ...pongFile(id, [{ game: pong, request: 'Make the ball faster' }]) },
+      })
+      expect(button(wrapper, 'Undo change')).toBeDefined()
+    })
+
+    it('shows "Changing the game..." and the seconds, with the spinner, and takes no other request or undo until it ends', async () => {
+      vi.useFakeTimers()
+      const { wrapper } = await startWithPong()
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      const finishChanging = answerLater(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'ball(speed * 2);' }] })
+      await send('Make it twice as fast')
+      await vi.advanceTimersByTimeAsync(3000)
+
+      expect(wrapper.text()).toContain('Changing the game... (3s)')
+      expect(wrapper.findComponent(QSpinnerGears).exists()).toBe(true)
+      expect(wrapper.find('iframe').exists()).toBe(false)
+      expect(useAppStore().generating).toBe(true)
+      expect(button(wrapper, 'Undo change').props('disable')).toBe(true)
+      expect(button(wrapper, 'New game')).toBeDefined()
+
+      finishChanging()
+      await flushPromises()
+
+      expect(gameOnScreen(wrapper)).toContain('ball(speed * 2);')
+      expect(useAppStore().generating).toBe(false)
+      expect(button(wrapper, 'Undo change').props('disable')).toBe(false)
+    })
+
+    it.each([
+      ['is not JSON', 'Here are the changes: the ball is faster'],
+      ['has a block whose text is not in the code', { changes: [{ find: 'var speed = 6;', replace: 'var speed = 8;' }] }],
+      ['has a block whose text is in the code twice', { changes: [{ find: 'speed', replace: 'pace' }] }],
+      ['has blocks that overlap', { changes: [{ find: 'var speed = 5;', replace: 'var speed = 8;' }, { find: '5;\nball', replace: '5;\nballs' }] }],
+    ])('asks once for the whole game, read as a new game is, when the answer %s', async (why, answer) => {
+      const { wrapper, id } = await startWithPong()
+      const wholeGame = { ...pong, code: 'var speed = 9;\nball(speed);' }
+      answerWith(providers.anthropic, answer)
+      answerWith(providers.anthropic, wholeGame)
+
+      await send('Make the ball faster')
+
+      const [first, , whole] = requests(providers.anthropic)
+      expect(requests(providers.anthropic)).toHaveLength(3)
+      expect(whole[0]).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong'], { wholeGame: true }))
+      expect(whole[1]).toEqual(first[1])
+      expect(gameOnScreen(wrapper)).toContain('var speed = 9;')
+      expect(gameFiles()).toEqual({
+        [`${id}-pong.json`]: { ...wholeGame, ...pongFile(id, [{ game: pong, request: 'Make the ball faster' }]) },
+      })
+    })
+
+    it('shows why when the whole game cannot be read either, and the game stays as it was', async () => {
+      const { wrapper, id } = await startWithPong()
+      const files = gameFiles()
+      answerWith(providers.anthropic, { changes: [{ find: 'var speed = 6;', replace: 'var speed = 8;' }] })
+      answerWith(providers.anthropic, { title: 'Pong' })
+
+      await send('Make the ball faster')
+
+      expect(requests(providers.anthropic)).toHaveLength(3)
+      expect(wrapper.text()).toContain('Failed to parse game response: Missing required field: code')
+      expect(gameFiles()).toEqual(files)
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, rules: 'First to 5 wins' })])
+      expect(button(wrapper, 'Undo change')).toBeUndefined()
+    })
+
+    it('shows why when the request fails, asks for no whole game, and Retry sends the change again', async () => {
+      const { wrapper, id } = await startWithPong()
+      failLater(providers.anthropic, new Error('Claude CLI error: Not logged in · Please run /login'))()
+
+      await send('Make the ball faster')
+
+      expect(requests(providers.anthropic)).toHaveLength(2)
+      expect(wrapper.text()).toContain('Claude CLI error: Not logged in · Please run /login')
+
+      answerWith(providers.anthropic, faster)
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      expect(requests(providers.anthropic)).toHaveLength(3)
+      expect(requests(providers.anthropic)[2][0]).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong']))
+      expect(gameOnScreen(wrapper)).toContain('var speed = 8;')
+      expect(useAppStore().loadedGame).toBe(id)
+    })
+
+    it('shows why a change cannot be saved, as the file system says it, and the game stays as it was', async () => {
+      const { wrapper, id } = await startWithPong()
+      const files = gameFiles()
+      // Tauri's file system rejects with a string
+      addGameVersion.mockRejectedValueOnce('failed to write the file: No space left on device')
+      answerWith(providers.anthropic, faster)
+
+      await send('Make the ball faster')
+
+      expect(wrapper.text()).toContain('failed to write the file: No space left on device')
+      expect(gameFiles()).toEqual(files)
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(button(wrapper, 'Retry')).toBeDefined()
+    })
+
+    it('shows why the open game cannot be changed when its file no longer holds a game', async () => {
+      const { wrapper, id } = await startWithPong()
+      // The file was changed outside the app, and has lost its code
+      files.set(`${gamesFolder}/${id}-pong.json`, JSON.stringify({ title: 'Pong', id, prompt: JSON.stringify('A game of pong') }))
+
+      await send('Make the ball faster')
+
+      expect(wrapper.text()).toContain('Missing required field: code')
+      expect(requests(providers.anthropic)).toHaveLength(1)
+    })
+
+    it('says so when no provider is connected, and Retry sends the change once one is', async () => {
+      const { wrapper, id } = await startWithPong()
+      await wrapper.findComponent(Settings).vm.$emit('providerDisconnected', 'anthropic')
+      await flushPromises()
+
+      await send('Make the ball faster')
+
+      expect(wrapper.text()).toContain('No AI provider connected. Open Settings to connect.')
+      expect(requests(providers.anthropic)).toHaveLength(1)
+
+      await wrapper.findComponent(Settings).props('connectClaude')()
+      answerWith(providers.anthropic, faster)
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      expect(requests(providers.anthropic)[1][0]).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong']))
+      expect(gameFiles()[`${id}-pong.json`].code).toBe(fasterPong.code)
+    })
+
+    it('sends the game as changed, with every request it was made from, and Undo change goes back one version at a time, deleting saved progress', async () => {
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'ball(speed);\nball(speed);' }], title: 'Double Pong' })
+      await send('Add a second ball')
+
+      expect(requests(providers.anthropic)[2][0]).toBe(
+        getChangePrompt(fasterPong, 'Add a second ball', ['A game of pong', 'Make the ball faster'])
+      )
+      expect(wrapper.find('.q-toolbar__title').text()).toBe('Double Pong')
+      expect(Object.keys(gameFiles())).toEqual([`${id}-double-pong.json`])
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, title: 'Double Pong' })])
+
+      // Progress saved in the second version
+      files.set(`${gamesFolder}/${id}-double-pong.state.json`, '{"score":3}')
+      await pressUndo(wrapper)
+
+      expect(gameOnScreen(wrapper)).toContain('var speed = 8;\nball(speed);')
+      expect(gameOnScreen(wrapper)).not.toContain('ball(speed);\nball(speed);')
+      expect(wrapper.find('.q-toolbar__title').text()).toBe('Pong')
+      expect(Object.keys(gameFiles())).toEqual([`${id}-pong.json`])
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, title: 'Pong', rules: 'First to 7 wins' })])
+
+      await pressUndo(wrapper)
+
+      expect(gameOnScreen(wrapper)).toContain('var speed = 5;')
+      expect(gameFiles()).toEqual({ [`${id}-pong.json`]: { ...pong, ...pongFile(id, []) } })
+      expect(button(wrapper, 'Undo change')).toBeUndefined()
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(useAppStore().gameList).toHaveLength(1)
+    })
+
+    it('offers Undo change for a saved game opened from the list that has an earlier version', async () => {
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+      await pressNewGame(wrapper)
+      expect(button(wrapper, 'Undo change')).toBeUndefined()
+
+      await openGame(wrapper, id)
+      expect(button(wrapper, 'Undo change')).toBeDefined()
+      await pressUndo(wrapper)
+
+      expect(gameOnScreen(wrapper)).toContain('var speed = 5;')
+    })
+
+    it('shows why an undo fails, with no Retry', async () => {
+      const { wrapper } = await startWithPong()
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+      undoGameVersion.mockRejectedValueOnce('Permission denied')
+
+      await pressUndo(wrapper)
+
+      expect(wrapper.text()).toContain('Permission denied')
+      expect(button(wrapper, 'Retry')).toBeUndefined()
+    })
+
+    it('sends a changed game that fails as it starts back once to the provider and model that made the change, and the fixed game replaces that version', async () => {
+      const { wrapper, id } = await startWithPong()
+      usePersistedStore().selectedModels.anthropic = 'opus'
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      const broken = { ...pong, code: 'var speed = 5;\ndrawBall(speed);' }
+      expect(gameOnScreen(wrapper)).toContain('drawBall(speed);')
+
+      const fixed = { ...pong, code: 'var speed = 5;\nroundBall(speed);' }
+      answerWith(providers.anthropic, fixed)
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      const [first, , fix] = requests(providers.anthropic)
+      expect(requests(providers.anthropic)).toHaveLength(3)
+      expect(fix[0]).toBe(getFixPrompt(broken, startError))
+      expect(fix[1]).toEqual({ ...first[1], model: 'opus' })
+      // The same game, with the fixed game in place of the version that failed
+      expect(gameOnScreen(wrapper)).toContain('roundBall(speed);')
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id, title: 'Pong' })])
+      expect(gameFiles()).toEqual({
+        [`${id}-pong.json`]: { ...fixed, ...pongFile(id, [{ game: pong, request: 'Make the ball round' }]) },
+      })
+
+      // The fixed game gets no second fix
+      await sendFromGame(wrapper, { type: 'error', data: { message: "Can't find variable: roundBall" } })
+      expect(requests(providers.anthropic)).toHaveLength(3)
+    })
+
+    it('shows why when the fix of a changed game fails, and Retry makes the change again from the version it was made to', async () => {
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      failLater(providers.anthropic, new Error('Claude CLI error: rate limited'))()
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      expect(wrapper.text()).toContain('Claude CLI error: rate limited')
+      // The version that failed stays, and Undo change goes back from it
+      expect(gameFiles()[`${id}-pong.json`].code).toBe('var speed = 5;\ndrawBall(speed);')
+      expect(button(wrapper, 'Undo change')).toBeDefined()
+
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'roundBall(speed);' }] })
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      expect(requests(providers.anthropic)[3][0]).toBe(getChangePrompt(pong, 'Make the ball round', ['A game of pong']))
+      expect(gameOnScreen(wrapper)).toContain('roundBall(speed);')
+      expect(gameFiles()).toEqual({
+        [`${id}-pong.json`]: {
+          ...pong,
+          code: 'var speed = 5;\nroundBall(speed);',
+          ...pongFile(id, [{ game: pong, request: 'Make the ball round' }]),
+        },
+      })
+    })
+
+    it('Retry after a fix that failed sends the change again, with no second undo, when the change fails too', async () => {
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      failLater(providers.anthropic, new Error('Claude CLI error: rate limited'))()
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      failLater(providers.anthropic, new Error('Claude CLI error: rate limited again'))()
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('Claude CLI error: rate limited again')
+      expect(gameFiles()[`${id}-pong.json`]).toEqual({ ...pong, ...pongFile(id, []) })
+      expect(button(wrapper, 'Undo change')).toBeUndefined()
+
+      answerWith(providers.anthropic, faster)
+      await button(wrapper, 'Retry').trigger('click')
+      await flushPromises()
+
+      expect(gameFiles()[`${id}-pong.json`]).toEqual({ ...fasterPong, ...pongFile(id, [{ game: pong, request: 'Make the ball round' }]) })
+    })
+
+    it('New game closes the open game, and the box then makes a new game from the description', async () => {
+      const { wrapper, id } = await startWithPong()
+
+      await pressNewGame(wrapper)
+
+      expect(useAppStore().loadedGame).toBeNull()
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      expect(wrapper.find('iframe').exists()).toBe(false)
+      expect(button(wrapper, 'New game')).toBeUndefined()
+
+      answerWith(providers.anthropic, { title: 'Snake', code: 'snake()' })
+      await send('A game of snake')
+
+      const [, request] = requests(providers.anthropic)
+      expect(request[0]).toBe('A game of snake')
+      expect(request[1]).not.toHaveProperty('parse')
+      expect(gameOnScreen(wrapper)).toContain('snake()')
+      expect(useAppStore().gameList.map((game) => game.title)).toEqual(['Snake', 'Pong'])
+      expect(useAppStore().loadedGame).not.toBe(id)
+    })
+
+    it('does not let an answer land on another game the user opened meanwhile, and saves nothing', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper, id } = await startWithPong()
+      const files = gameFiles()
+      const finishChanging = answerLater(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      await openGame(wrapper, '100')
+      finishChanging()
+      await flushPromises()
+
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(useAppStore().loadedGame).toBe('100')
+      expect(gameFiles()).toEqual(files)
+      expect(useAppStore().generating).toBe(false)
+      expect(useAppStore().gameList.find((game) => game.id === id).rules).toBe('First to 5 wins')
+    })
+
+    it('drops the answer when the user starts a new game while the change runs', async () => {
+      const { wrapper } = await startWithPong()
+      const files = gameFiles()
+      const finishChanging = answerLater(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      await pressNewGame(wrapper)
+      finishChanging()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      expect(useAppStore().loadedGame).toBeNull()
+      expect(gameFiles()).toEqual(files)
+    })
+
+    it('drops the answer when the user deletes the game while the change runs, so the game does not come back', async () => {
+      const { wrapper, id } = await startWithPong()
+      const finishChanging = answerLater(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      // What GameList does when the user deletes the game
+      await deleteGameFromFS(id)
+      await deleteGame(wrapper, id)
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      finishChanging()
+      await flushPromises()
+
+      expect(gameFiles()).toEqual({})
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      expect(useAppStore().loadedGame).toBeNull()
+    })
+
+    it('asks for no whole game when the user has left the game by the time the change blocks cannot be made', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper } = await startWithPong()
+      const finishChanging = answerLater(providers.anthropic, { changes: [{ find: 'var speed = 6;', replace: 'var speed = 8;' }] })
+      await send('Make the ball faster')
+
+      await openGame(wrapper, '100')
+      finishChanging()
+      await flushPromises()
+
+      expect(requests(providers.anthropic)).toHaveLength(2)
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+    })
+
+    it('shows no error for a change that fails after the user has left the game', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper } = await startWithPong()
+      const failChanging = failLater(providers.anthropic, new Error('Claude CLI error: rate limited'))
+      await send('Make the ball faster')
+
+      await openGame(wrapper, '100')
+      failChanging()
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('rate limited')
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+    })
+
+    it('sends no request when the user has left the game by the time it has been read', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper, id } = await startWithPong()
+      const finishReading = holdGameRead()
+      await send('Make the ball faster')
+
+      await openGame(wrapper, '100')
+      finishReading()
+      await flushPromises()
+
+      expect(requests(providers.anthropic)).toHaveLength(1)
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(Object.keys(gameFiles())).toEqual(['100-tetris.json', `${id}-pong.json`])
+    })
+
+    it('saves but does not show a version whose saving ends after the user has left the game', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper, id } = await startWithPong()
+      const finishSaving = holdStorage(addGameVersion)
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      await openGame(wrapper, '100')
+      finishSaving()
+      await flushPromises()
+
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(gameFiles()[`${id}-pong.json`].code).toBe(fasterPong.code)
+    })
+
+    it('goes on with the provider it was sent to when the user switches provider meanwhile, and the new version gets no fix', async () => {
+      credentials.set('openai:apiKey', 'sk-test')
+      const { wrapper, id } = await startWithPong()
+      const finishChanging = answerLater(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      await switchProvider(wrapper, 'openai')
+      finishChanging()
+      await flushPromises()
+
+      expect(gameOnScreen(wrapper)).toContain('var speed = 8;')
+      expect(useAppStore().loadedGame).toBe(id)
+      expect(gameFiles()[`${id}-pong.json`].code).toBe(fasterPong.code)
+
+      // It fails as it starts, but the provider that made it is no longer the active one
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(requests(providers.anthropic)).toHaveLength(2)
+      expect(providers.openai.generateGame).not.toHaveBeenCalled()
+    })
+
+    it('drops the fix of a changed game when the user has left the game by the time it comes', async () => {
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      const finishFixing = answerLater(providers.anthropic, { ...pong, code: 'var speed = 5;\nroundBall(speed);' })
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(wrapper.text()).toContain('Fixing an error in the game...')
+
+      await pressNewGame(wrapper)
+      finishFixing()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+      expect(gameFiles()[`${id}-pong.json`].code).toBe('var speed = 5;\ndrawBall(speed);')
+    })
+
+    it('shows no error for a fix of a changed game that fails after the user has left the game', async () => {
+      const { wrapper } = await startWithPong()
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      const failFixing = failLater(providers.anthropic, new Error('Claude CLI error: rate limited'))
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      await pressNewGame(wrapper)
+      failFixing()
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('rate limited')
+      expect(wrapper.text()).toContain('Welcome to Gaimer')
+    })
+
+    it('saves but does not show a fixed version whose saving ends after the user has left the game', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, { changes: [{ find: 'ball(speed);', replace: 'drawBall(speed);' }] })
+      await send('Make the ball round')
+      const finishSaving = holdStorage(replaceGameVersion)
+      answerWith(providers.anthropic, { ...pong, code: 'var speed = 5;\nroundBall(speed);' })
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      await openGame(wrapper, '100')
+      finishSaving()
+      await flushPromises()
+
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(gameFiles()[`${id}-pong.json`].code).toBe('var speed = 5;\nroundBall(speed);')
+    })
+
+    it('does not show an undone version, or why an undo failed, after the user has left the game', async () => {
+      addSavedGame('100', 'Tetris')
+      const { wrapper, id } = await startWithPong()
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+
+      const finishUndo = holdStorage(undoGameVersion)
+      await button(wrapper, 'Undo change').trigger('click')
+      await openGame(wrapper, '100')
+      finishUndo()
+      await flushPromises()
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(gameFiles()[`${id}-pong.json`].code).toBe(pong.code)
+
+      await openGame(wrapper, id)
+      answerWith(providers.anthropic, faster)
+      await send('Make the ball faster')
+      const failUndo = holdStorage(undoGameVersion, async () => { throw new Error('Permission denied') })
+      await button(wrapper, 'Undo change').trigger('click')
+      await openGame(wrapper, '100')
+      failUndo()
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('Permission denied')
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+    })
+
+    it('lists the requests of a saved game whose description is not kept as JSON, or not kept', async () => {
+      const game = { title: 'Tetris', code: 'tetris();' }
+      files.set(`${gamesFolder}/100-tetris.json`, JSON.stringify({ ...game, id: '100', prompt: 'A game of Tetris' }))
+      files.set(`${gamesFolder}/200-tetris.json`, JSON.stringify({ ...game, id: '200' }))
+      const wrapper = await startAppWithGames()
+      const change = { changes: [{ find: 'tetris();', replace: 'tetris(2);' }] }
+
+      await openGame(wrapper, '100')
+      answerWith(providers.anthropic, change)
+      await send('Make it faster')
+      await openGame(wrapper, '200')
+      answerWith(providers.anthropic, change)
+      await send('Make it faster')
+
+      expect(requests(providers.anthropic).map(([prompt]) => prompt)).toEqual([
+        getChangePrompt(game, 'Make it faster', ['A game of Tetris']),
+        getChangePrompt(game, 'Make it faster', []),
+      ])
     })
   })
 })

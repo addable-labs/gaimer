@@ -4,7 +4,7 @@ import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
 
 const appStore = useAppStore();
-const { gameDescription, generating } = storeToRefs(appStore);
+const { gameDescription, generating, loadedGame } = storeToRefs(appStore);
 
 const descriptionMaxLength = ref(4096);
 const userInput = ref("");
@@ -23,6 +23,9 @@ async function handleUserInput() {
     // the send button after a click or tap (QInput's blur() does both)
     fieldRef.value.blur();
 }
+
+// With a game open, what the user sends changes it
+const emptyLabel = computed(() => (loadedGame.value ? "Change this game..." : "Describe your game..."));
 
 const remainingCharactersText = computed(() => {
     let remainingCharacters =
@@ -46,7 +49,7 @@ const remainingCharactersText = computed(() => {
             :disable="generating"
             :label="
                 userInput.length == 0
-                    ? 'Describe your game...'
+                    ? emptyLabel
                     : remainingCharactersText
             "
             :maxlength="descriptionMaxLength"
