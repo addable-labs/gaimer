@@ -3,6 +3,9 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import GameContainer from '../../../src/components/GameContainer.vue'
+import { quasarPlugins } from '../../../src/quasar-plugins.js'
+import { loadGameState } from '../../../src/helpers/game-storage.js'
+import { useAppStore } from '../../../src/stores/app-store.js'
 
 vi.mock('../../../src/helpers/game-storage.js', () => ({
   saveGameState: vi.fn(async () => {}),
@@ -33,12 +36,13 @@ function setContainerSize(wrapper, { width, height }) {
   container.getBoundingClientRect = () => new DOMRect(0, 0, width, height)
 }
 
-// Shows a game in a container of the given size
+// Shows a game in a container of the given size, with the Quasar plugins the
+// app installs
 async function showGame(size) {
   const wrapper = mount(GameContainer, {
     props: { game: { code: '// game', controls: 'Arrow keys', rules: 'Catch the stars' } },
     attachTo: document.body,
-    global: { plugins: [Quasar] },
+    global: { plugins: [[Quasar, { plugins: quasarPlugins }]] },
   })
   setContainerSize(wrapper, size)
   await flushPromises()
@@ -55,6 +59,25 @@ async function resizeContainer(wrapper, size) {
   }
   // Longer than any debounce of the resize
   await vi.advanceTimersByTimeAsync(1000)
+}
+
+// Plays the game in the iframe, a game that can save: asked to save, it
+// answers with the given state. Returns the messages the app sends it.
+function playGame(wrapper, state) {
+  const game = wrapper.find('iframe').element.contentWindow
+  const received = []
+  vi.spyOn(game, 'postMessage').mockImplementation((message) => {
+    received.push(message)
+    if (message.type === 'saveState') {
+      setTimeout(() => sendFromGame(game, { type: 'stateData', data: state }))
+    }
+  })
+  return { game, received }
+}
+
+// Sends a message from the game in the iframe to the app
+function sendFromGame(game, message) {
+  window.dispatchEvent(new MessageEvent('message', { data: message, source: game }))
 }
 
 enableAutoUnmount(afterEach)
@@ -90,5 +113,32 @@ describe('GameContainer', () => {
     await resizeContainer(wrapper, { width: 800, height: 600 })
     expect(wrapper.find('iframe').element).toBe(iframe)
     expect(iframe.style.transform).toBe('translate(0px, 0px) scale(1)')
+  })
+
+  it('offers to restore saved progress, and restores it when the player accepts', async () => {
+    const savedState = { level: 3, score: 1200 }
+    useAppStore().loadedGame = '1790000000000'
+    vi.mocked(loadGameState).mockResolvedValueOnce(savedState)
+    const wrapper = await showGame({ width: 800, height: 600 })
+    const { game, received } = playGame(wrapper, { level: 1, score: 0 })
+
+    // The game starts
+    sendFromGame(game, { type: 'ready', data: {} })
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(loadGameState).toHaveBeenCalledWith('1790000000000')
+    const dialog = document.querySelector('.q-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog.textContent).toContain('Restore progress?')
+    // Nothing is restored before the player answers
+    expect(received.map((message) => message.type)).not.toContain('restoreState')
+
+    // The player accepts: the game gets the saved state, and the dialog closes
+    const buttons = [...dialog.querySelectorAll('button')]
+    buttons.find((button) => button.textContent.trim() === 'Restore').click()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(received).toContainEqual({ type: 'restoreState', data: savedState })
+    expect(document.querySelector('.q-dialog')).toBeNull()
   })
 })

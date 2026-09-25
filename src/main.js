@@ -7,7 +7,8 @@ const app = createApp(App);
 
 // ---------------------------------------------------------------------------------------------
 // Import and make Quasar available in the app
-import { Quasar, Dark, Notify } from "quasar";
+import { Quasar } from "quasar";
+import { quasarPlugins } from "./quasar-plugins.js";
 import quasarIconSet from "quasar/icon-set/svg-mdi-v7";
 import "@quasar/extras/mdi-v7/mdi-v7.css";
 import "quasar/dist/quasar.css";
@@ -15,7 +16,7 @@ import "quasar/dist/quasar.css";
 import "./styles.css";
 
 app.use(Quasar, {
-    plugins: { Dark, Notify }, // import Quasar plugins and add here
+    plugins: quasarPlugins, // add Quasar plugins in quasar-plugins.js
     config: {
         dark: true,
         notify: {},
