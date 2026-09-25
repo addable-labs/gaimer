@@ -509,9 +509,9 @@ describe('GameContainer', () => {
     })
   })
 
-  // Key presses reach the game only while it has the keyboard focus. A click
-  // on the game gives it the focus, but not when the game's own pointerdown
-  // handler calls preventDefault(), as some games do.
+  // Key presses reach the game only while it has the keyboard focus. The
+  // game's page takes it when the player clicks the game (sandbox.test.js);
+  // the app gives it to the game at other times.
   describe('keyboard focus', () => {
     // The description box, in the page with the game, as in the app
     function showDescriptionBox() {

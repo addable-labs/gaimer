@@ -169,10 +169,9 @@ function loadGameScript() {
 }
 
 // The game takes the keyboard focus when it is ready, so that key presses
-// reach it before the player clicks it. A click gives the game the focus,
-// but not when the game's own pointerdown handler calls preventDefault(), as
-// some games do. The focus stays in a text field, such as the description
-// box while the user types there, and in a dialog.
+// reach it before the player clicks it. (A click on the game gives it the
+// focus: the game's page takes it.) The focus stays in a text field, such
+// as the description box while the user types there, and in a dialog.
 function focusReadyGame() {
     if (document.activeElement?.closest("input, textarea, [role='dialog']")) return;
     sandbox.focus();

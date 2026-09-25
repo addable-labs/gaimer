@@ -49,15 +49,22 @@ function runHarness(srcdoc, { game = false, inWindow = false } = {}) {
   return { win, parent, received }
 }
 
+// An event of the player's input, which a browser marks as trusted. happy-dom
+// gives events no isTrusted.
+function playerInput(event) {
+  Object.defineProperty(event, 'isTrusted', { value: true })
+  return event
+}
+
 // The player taps or clicks the canvas of a page run in a window of its own
 function tap(win) {
-  win.document.getElementById('game-canvas').dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true }))
+  win.document.getElementById('game-canvas').dispatchEvent(playerInput(new win.PointerEvent('pointerdown', { bubbles: true })))
 }
 
 // The player presses a key in a page run in a window of its own. The key
 // goes to the page's body, which has the focus.
 function press(win, key) {
-  win.document.body.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true }))
+  win.document.body.dispatchEvent(playerInput(new win.KeyboardEvent('keydown', { key, bubbles: true })))
 }
 
 // The error event Chromium fires for a syntax error V8 found in a script,
@@ -812,6 +819,48 @@ window.addEventListener('keydown', play);`)
     const pressed = runHarness(srcdoc, { game: true, inWindow: true })
     press(pressed.win, ' ')
     expect(pressed.received).toEqual([{ type: 'ready', data: {} }, { type: 'firstInput', data: {} }, error])
+  })
+
+  it("the game page takes the keyboard focus when the player clicks the game, before the game's own handler cancels the event", () => {
+    // The game's handler calls preventDefault(), which stops a click from
+    // giving the page the focus, and stops the event from going further
+    const srcdoc = loadSrcdoc(`document.getElementById('game-canvas').addEventListener('pointerdown', function (e) {
+  e.preventDefault();
+  e.stopPropagation();
+  window.calls.push('game');
+});`)
+    const { win } = runHarness(srcdoc, { game: true, inWindow: true })
+    win.calls = []
+    vi.spyOn(win, 'focus').mockImplementation(() => win.calls.push('focus'))
+
+    tap(win)
+    expect(win.calls).toEqual(['focus', 'game'])
+
+    // And again on the next click, after the player has moved the focus to
+    // a button in the app, say
+    tap(win)
+    expect(win.calls).toEqual(['focus', 'game', 'focus', 'game'])
+  })
+
+  it('the game page does not take the focus when the mouse only moves over the game, or for a pointerdown the game makes itself', () => {
+    const { win } = runHarness(loadSrcdoc('// game'), { inWindow: true })
+    const focus = vi.spyOn(win, 'focus')
+    const canvas = win.document.getElementById('game-canvas')
+
+    // The mouse moves over the game while the user types in the description
+    // box
+    for (const type of ['pointerover', 'pointerenter', 'pointermove']) {
+      canvas.dispatchEvent(playerInput(new win.PointerEvent(type, { bubbles: true })))
+    }
+    // The game's code makes a pointerdown, which is not trusted
+    const madeUp = new win.PointerEvent('pointerdown', { bubbles: true })
+    Object.defineProperty(madeUp, 'isTrusted', { value: false })
+    canvas.dispatchEvent(madeUp)
+    expect(focus).not.toHaveBeenCalled()
+
+    // The player's own click
+    tap(win)
+    expect(focus).toHaveBeenCalledOnce()
   })
 
   it('loadGame() keeps "</script" in the game code as written, and it cannot end the script early', () => {

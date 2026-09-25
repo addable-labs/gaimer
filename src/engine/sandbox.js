@@ -125,6 +125,19 @@ function __gaimer_onFirstInput() {
 window.addEventListener('pointerdown', __gaimer_onFirstInput, true);
 window.addEventListener('keydown', __gaimer_onFirstInput, true);
 
+// The page takes the keyboard focus when the player clicks the game, so
+// that key presses reach it. A click gives it the focus, but not when the
+// game's own pointerdown handler calls preventDefault(): a button in the
+// app would keep the focus. The listener is the window's, for the capture
+// phase, so it runs before the game's own, on every click. Only the
+// player's input moves the focus, not an event the game makes. A touch
+// does the same in Chromium, but not in WebKit: it lets the page take the
+// focus only with a user activation, which a touch's pointerdown does not
+// give.
+window.addEventListener('pointerdown', function(event) {
+  if (event.isTrusted) window.focus();
+}, true);
+
 // Report errors to the parent: a syntax error in the game's script, which
 // runs after this one, and errors the game throws later (game loop, input
 // handlers, promises). Stack traces quote a script's whole data: URL in each
@@ -228,9 +241,8 @@ window.addEventListener('unhandledrejection', function(event) {
     },
 
     /**
-     * Give the game the keyboard focus, so that key presses reach it. A
-     * click on the game gives it the focus too, but not when the game's own
-     * pointerdown handler calls preventDefault(), which cancels that.
+     * Give the game the keyboard focus, so that key presses reach it. The
+     * game's page takes the focus itself when the player clicks the game.
      */
     focus() {
       if (iframe) iframe.focus({ preventScroll: true })
