@@ -220,4 +220,75 @@ describe('GameContainer', () => {
     await vi.advanceTimersByTimeAsync(2000)
     expect(notifications()).toContain('Save failed: The game did not answer')
   })
+
+  describe('a game that fails as it starts', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    // The errors the container reported as the game failing as it started
+    function startErrors(wrapper) {
+      return (wrapper.emitted('startError') ?? []).map(([error]) => error)
+    }
+
+    it('reports the first error the game sends before it is ready', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+
+      // A syntax error: the game's script does not run, and the page reports
+      // the error with no stack
+      sendFromGame(game, { type: 'error', data: { message: "Unexpected token ')'", stack: null } })
+      sendFromGame(game, { type: 'error', data: { message: 'Another error' } })
+
+      expect(startErrors(wrapper)).toEqual([{ message: "Unexpected token ')'", stack: '' }])
+      // The player sees the error, as for any game
+      await vi.advanceTimersByTimeAsync(100)
+      expect(notifications()).toContain("Game error: Unexpected token ')'")
+    })
+
+    it('reports an error in the first 5 seconds after the game is ready', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+      sendFromGame(game, { type: 'ready', data: {} })
+
+      // The first enemy appears, and the game throws
+      await vi.advanceTimersByTimeAsync(4999)
+      const error = { message: "Can't find variable: enemies", stack: 'spawn@game.js:40:9' }
+      sendFromGame(game, { type: 'error', data: error })
+
+      expect(startErrors(wrapper)).toEqual([error])
+    })
+
+    it('does not report an error after the first 5 seconds, which the player sees as before', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+      sendFromGame(game, { type: 'ready', data: {} })
+
+      await vi.advanceTimersByTimeAsync(5000)
+      sendFromGame(game, { type: 'error', data: { message: 'An error after 5 s' } })
+
+      expect(startErrors(wrapper)).toEqual([])
+      await vi.advanceTimersByTimeAsync(100)
+      expect(notifications()).toContain('Game error: An error after 5 s')
+    })
+
+    it('counts only the seconds the page is visible', async () => {
+      const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+      sendFromGame(game, { type: 'ready', data: {} })
+
+      // The user is in another app for a minute, then comes back, and the
+      // game runs its first frames
+      hidden.mockReturnValue(true)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(60000)
+      hidden.mockReturnValue(false)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(4000)
+      sendFromGame(game, { type: 'error', data: { message: 'player is undefined', stack: '' } })
+
+      expect(startErrors(wrapper)).toEqual([{ message: 'player is undefined', stack: '' }])
+    })
+  })
 })

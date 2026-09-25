@@ -6,6 +6,7 @@ import { createSandbox } from "../engine/sandbox.js";
 import { saveGameState, loadGameState } from "../helpers/game-storage.js";
 
 const { game } = defineProps(["game"]);
+const emit = defineEmits(["startError"]);
 const $q = useQuasar();
 const appStore = useAppStore();
 const gameId = computed(() => appStore.loadedGame);
@@ -16,6 +17,31 @@ const saveSupported = ref(false);
 const saving = ref(false);
 // The message of the game error logged last
 let loggedError = null;
+
+// A game fails as it starts when it reports an error before it is ready (a
+// syntax error, or an error its start code throws), or in its first
+// START_SECONDS seconds after that. Those seconds cover its first frames and
+// the timers and countdowns it starts with, while the player has not got far
+// yet. Only seconds with the page visible count: a hidden page runs no
+// frames, and the game is paused. The first such error goes to App as
+// startError.
+const START_SECONDS = 5;
+let starting = true;
+let startSecondsLeft = START_SECONDS;
+let startClock = null;
+
+function countStartSeconds() {
+    if (!starting || startClock) return;
+    startClock = setInterval(() => {
+        if (!document.hidden && --startSecondsLeft === 0) endStart();
+    }, 1000);
+}
+
+function endStart() {
+    starting = false;
+    clearInterval(startClock);
+    startClock = null;
+}
 
 async function probeSaveSupport() {
     if (!sandbox) return;
@@ -94,7 +120,15 @@ function loadGameScript() {
                 position: "top",
                 color: "negative",
             });
+            if (starting) {
+                endStart();
+                emit("startError", {
+                    message: String(msg.data?.message || "Unknown error"),
+                    stack: typeof msg.data?.stack === "string" ? msg.data.stack : "",
+                });
+            }
         } else if (msg.type === "ready") {
+            countStartSeconds();
             // Probe for save/restore support, then offer restore if available
             probeSaveSupport().then(() => checkAndOfferRestore());
         }
@@ -148,6 +182,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    endStart();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     resizeObserver.disconnect();
     if (sandbox) {

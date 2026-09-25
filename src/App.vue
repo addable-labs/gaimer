@@ -6,12 +6,12 @@ import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
 import { createAnthropicProvider } from "./providers/anthropic-provider.js";
-import { initStorage, saveGame, loadGame as loadGameFromFS, listGames } from "./helpers/game-storage.js";
+import { initStorage, saveGame, loadGame as loadGameFromFS, listGames, deleteGame } from "./helpers/game-storage.js";
 import UserInput from "./components/UserInput.vue";
 import Settings from "./components/Settings.vue";
 import GameList from "./components/GameList.vue";
 import GameContainer from "./components/GameContainer.vue";
-import { getSystemMessage } from "./helpers/prompts.js";
+import { getFixPrompt, getSystemMessage } from "./helpers/prompts.js";
 import { safeParseGameJSON } from "./helpers/json-utils.js";
 
 const appStore = useAppStore();
@@ -124,6 +124,57 @@ function stopElapsedTimer() {
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
 }
 
+// Ask a provider for a game, and return it. With no model given, the
+// provider uses its default.
+async function requestGame(provider, prompt, model) {
+    const generator = provider.generateGame(prompt, {
+        systemMessage: getSystemMessage(),
+        model,
+        maxTokens: 16384,
+        temperature: 0.2,
+    });
+
+    let jsonResponse = null;
+    for await (const chunk of generator) {
+        if (chunk.type === "complete") {
+            jsonResponse = chunk.data;
+        }
+    }
+
+    if (!jsonResponse) {
+        throw new Error("No response from AI provider");
+    }
+    return jsonResponse;
+}
+
+// Save a new game, with the user's prompt, and make it the game to show.
+// Returns its id.
+async function addGame(prompt, jsonResponse) {
+    const timestamp = Date.now().toString();
+    await saveGame({
+        id: timestamp,
+        prompt: JSON.stringify(prompt),
+        content: JSON.stringify(jsonResponse),
+    });
+
+    game.value = jsonResponse;
+    loadedGame.value = timestamp;
+    // The list shows the newest game first
+    gameList.value.unshift({
+        id: timestamp,
+        title: jsonResponse.title,
+        description: jsonResponse.description,
+        controls: jsonResponse.controls,
+        rules: jsonResponse.rules,
+    });
+    return timestamp;
+}
+
+// The game generated last, from when it is shown until it has had its one
+// chance of a fix: its id, the user's prompt, the game, and the provider
+// and model that wrote it
+let newGame = null;
+
 // Generate a new game using the active provider
 const generateGame = async (prompt) => {
     const provider = registry.getActive();
@@ -139,44 +190,10 @@ const generateGame = async (prompt) => {
     startElapsedTimer();
 
     try {
-        // With no model chosen, the provider uses its default
-        const generator = provider.generateGame(prompt, {
-            systemMessage: getSystemMessage(),
-            model: selectedModels.value[provider.id],
-            maxTokens: 16384,
-            temperature: 0.2,
-        });
-
-        let jsonResponse = null;
-        for await (const chunk of generator) {
-            if (chunk.type === "complete") {
-                jsonResponse = chunk.data;
-            }
-        }
-
-        if (!jsonResponse) {
-            throw new Error("No response from AI provider");
-        }
-
-        let timestamp = Date.now().toString();
-        let newGame = {
-            id: timestamp,
-            prompt: JSON.stringify(prompt),
-            content: JSON.stringify(jsonResponse),
-        };
-
-        await saveGame(newGame);
-
-        game.value = jsonResponse;
-        loadedGame.value = timestamp;
-        // The list shows the newest game first
-        gameList.value.unshift({
-            id: timestamp,
-            title: jsonResponse.title,
-            description: jsonResponse.description,
-            controls: jsonResponse.controls,
-            rules: jsonResponse.rules,
-        });
+        const model = selectedModels.value[provider.id];
+        const jsonResponse = await requestGame(provider, prompt, model);
+        const id = await addGame(prompt, jsonResponse);
+        newGame = { id, prompt, jsonResponse, provider, model };
         state.value = "done";
     } catch (error) {
         console.error("Failed to generate game:", error);
@@ -190,10 +207,45 @@ const generateGame = async (prompt) => {
     await nextTick();
 };
 
+// A new game that fails as it starts goes back once, with the error, to the
+// provider and model that wrote it, and the fixed game takes its place. A
+// game opened from the list or a fixed game does not, and neither does a
+// game whose provider the user has since switched from or disconnected:
+// the user sees its error, as with any game. If the fix fails, the user
+// sees why, as when generating fails.
+async function fixGame(error) {
+    const broken = newGame;
+    newGame = null;
+    if (!broken || broken.id !== loadedGame.value || registry.getActive() !== broken.provider) return;
+
+    state.value = "fixing";
+    generating.value = true;
+    startElapsedTimer();
+
+    try {
+        const fixed = await requestGame(broken.provider, getFixPrompt(broken.jsonResponse, error), broken.model);
+        // The fixed game is saved first, then the broken game is deleted,
+        // with any progress saved in it
+        await addGame(broken.prompt, fixed);
+        gameList.value = gameList.value.filter((item) => item.id !== broken.id);
+        state.value = "done";
+        await deleteGame(broken.id).catch((err) => console.warn("Failed to delete the game that was fixed:", err));
+    } catch (err) {
+        console.error("Failed to fix game:", err);
+        state.value = "error";
+        debugMessage.value = err.message || String(err);
+    } finally {
+        generating.value = false;
+        stopElapsedTimer();
+    }
+}
+
 // Load selected game from filesystem and show it. While the file is being
 // read, the user can open another game or delete this one; then neither this
-// game nor an error reading it is shown.
+// game nor an error reading it is shown. A game opened from the list gets no
+// fix.
 const loadGame = async (id) => {
+    newGame = null;
     state.value = "loading";
     loadedGame.value = id;
     try {
@@ -322,8 +374,13 @@ watch(gameDescription, (newVal) => {
                             <div class="text-body1 q-mb-sm">Generating game... ({{ elapsedSeconds }}s)</div>
                         </template>
 
+                        <!-- Fixing a new game that failed as it started, with timer -->
+                        <template v-if="state === 'fixing'">
+                            <div class="text-body1 q-mb-sm">Fixing an error in the game... ({{ elapsedSeconds }}s)</div>
+                        </template>
+
                         <q-spinner-gears
-                            v-if="state === 'generating' || state === 'loading'"
+                            v-if="state === 'generating' || state === 'fixing' || state === 'loading'"
                             class="q-pa-lg"
                             color="primary"
                             size="8em"
@@ -356,6 +413,7 @@ watch(gameDescription, (newVal) => {
                     :key="loadedGame"
                     :game="game"
                     class="game-container-full"
+                    @startError="fixGame"
                 />
             </q-page>
         </q-page-container>

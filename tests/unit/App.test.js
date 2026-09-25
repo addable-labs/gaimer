@@ -7,7 +7,8 @@ import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import GameList from '../../src/components/GameList.vue'
 import GameContainer from '../../src/components/GameContainer.vue'
-import { listGames, loadGame as loadGameFromFS } from '../../src/helpers/game-storage.js'
+import { listGames, loadGame as loadGameFromFS, saveGame, deleteGame as deleteGameFromFS } from '../../src/helpers/game-storage.js'
+import { quasarPlugins } from '../../src/quasar-plugins.js'
 import { useAppStore } from '../../src/stores/app-store.js'
 import { usePersistedStore } from '../../src/stores/persisted-store.js'
 import { gameScript } from '../game-page.js'
@@ -51,11 +52,12 @@ const savedGames = vi.hoisted(() => new Map())
 vi.mock('../../src/helpers/game-storage.js', () => ({
   initStorage: vi.fn(async () => {}),
   listGames: vi.fn(async () => []),
-  saveGame: vi.fn(async () => {}),
+  saveGame: vi.fn(async (game) => { savedGames.set(game.id, game) }),
   loadGame: vi.fn(async (id) => {
     if (!savedGames.has(id)) throw new Error(`Game not found: ${id}`)
     return savedGames.get(id)
   }),
+  deleteGame: vi.fn(async (id) => { savedGames.delete(id) }),
 }))
 
 // Like the real providers: a failed connect() leaves the provider not
@@ -103,17 +105,25 @@ function endRun(line) {
   shell.running.find(({ process }) => process.args[2] === line).exit()
 }
 
-// Starts the app. Settings is stubbed unless other stubs are given: with
-// {}, Settings and its Claude panel are real.
-async function startApp(stubs = { Settings: true }) {
+// Starts the app, with the Quasar plugins it installs. Settings is stubbed
+// unless other stubs are given: with {}, Settings and its Claude panel are
+// real.
+async function startApp(stubs = { Settings: true }, options = {}) {
   const wrapper = mount(App, {
+    ...options,
     global: {
-      plugins: [Quasar],
+      plugins: [[Quasar, { plugins: quasarPlugins }]],
       stubs: { GameList: true, GameContainer: true, UserInput: true, ...stubs },
     },
   })
   await flushPromises()
   return wrapper
+}
+
+// Starts the app with its game container, in the page, where the game's
+// iframe has a window to send the app messages from
+function startAppWithGames() {
+  return startApp({ Settings: true, GameContainer: false }, { attachTo: document.body })
 }
 
 // What Settings does when the user picks a provider
@@ -209,6 +219,37 @@ function gameOnScreen(wrapper) {
   return gameScript(wrapper.find('iframe').element.srcdoc)
 }
 
+// Sends a message from the game on screen to the app, as its page does, and
+// lets the app act on it
+async function sendFromGame(wrapper, message) {
+  const game = wrapper.find('iframe').element.contentWindow
+  window.dispatchEvent(new MessageEvent('message', { data: message, source: game }))
+  await flushPromises()
+}
+
+// The text of the notifications shown
+function notifications() {
+  return [...document.querySelectorAll('.q-notification')].map((n) => n.textContent).join()
+}
+
+// The provider answers its next request with the game when the test calls
+// the function returned. By the clock, answering takes the model a minute.
+function answerLater(provider, game) {
+  let finish
+  const finished = new Promise((resolve) => { finish = resolve })
+  provider.generateGame.mockImplementationOnce(async function* () {
+    await finished
+    vi.setSystemTime(Date.now() + 60_000)
+    yield { type: 'complete', data: game }
+  })
+  return () => finish()
+}
+
+// The provider answers its next request with the game
+function answerWith(provider, game) {
+  answerLater(provider, game)()
+}
+
 enableAutoUnmount(afterEach)
 
 describe('App', () => {
@@ -227,6 +268,7 @@ describe('App', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   describe('model choice', () => {
@@ -564,6 +606,156 @@ describe('App', () => {
 
       expect(wrapper.text()).not.toContain('Game not found')
       expect(wrapper.text()).toContain('Welcome to Gaimer')
+    })
+  })
+
+  describe('a new game that fails as it starts', () => {
+    // The game as the model writes it, calling a function it has not
+    // defined, and as it writes it again, fixed
+    const broken = { title: 'Pong', controls: 'Arrow keys', code: 'drawBall()' }
+    const fixed = { title: 'Pong', controls: 'Arrow keys', code: 'draw()' }
+    // What the game page reports as the game starts
+    const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:3:5' }
+
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      saveGame.mockClear()
+      deleteGameFromFS.mockClear()
+    })
+
+    it('goes back once, with its code and the error, to the same provider and model, and the fixed game is shown and saved in its place', async () => {
+      answerWith(providers.anthropic, broken)
+      const finishFixing = answerLater(providers.anthropic, fixed)
+      const wrapper = await startAppWithGames()
+      usePersistedStore().selectedModels.anthropic = 'opus'
+      await generate()
+      const brokenId = useAppStore().loadedGame
+      expect(gameOnScreen(wrapper)).toContain('drawBall()')
+
+      // The game throws as it starts, and the app says what it does about it
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(wrapper.find('iframe').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Fixing an error in the game...')
+
+      finishFixing()
+      await flushPromises()
+
+      // One more call, with the same model and system message, and a prompt
+      // that holds the game's code and the error
+      const calls = providers.anthropic.generateGame.mock.calls
+      expect(calls).toHaveLength(2)
+      const [fixPrompt, fixOptions] = calls[1]
+      expect(fixPrompt).toContain('drawBall()')
+      expect(fixPrompt).toContain(`${startError.message}\n${startError.stack}`)
+      expect(fixOptions).toEqual(calls[0][1])
+      expect(fixOptions.model).toBe('opus')
+
+      // The fixed game runs in its place. It is saved with the user's
+      // prompt, and the broken game is deleted.
+      expect(wrapper.text()).not.toContain('Fixing an error')
+      expect(gameOnScreen(wrapper)).toContain('draw()')
+      expect(gameOnScreen(wrapper)).not.toContain('drawBall()')
+      const fixedId = useAppStore().loadedGame
+      expect(fixedId).not.toBe(brokenId)
+      expect(saveGame).toHaveBeenLastCalledWith({
+        id: fixedId,
+        prompt: JSON.stringify('A game of pong'),
+        content: JSON.stringify(fixed),
+      })
+      expect(deleteGameFromFS).toHaveBeenCalledWith(brokenId)
+      expect(useAppStore().gameList).toEqual([expect.objectContaining({ id: fixedId, title: 'Pong' })])
+    })
+
+    it('shows the error of a fixed game that fails too, and asks for no second fix', async () => {
+      answerWith(providers.anthropic, broken)
+      answerWith(providers.anthropic, { title: 'Pong', code: 'drawPaddle()' })
+      const wrapper = await startAppWithGames()
+      await generate()
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(gameOnScreen(wrapper)).toContain('drawPaddle()')
+
+      // The fixed game throws as it starts, too
+      await sendFromGame(wrapper, { type: 'error', data: { message: "Can't find variable: drawPaddle" } })
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledTimes(2)
+      expect(gameOnScreen(wrapper)).toContain('drawPaddle()')
+      expect(notifications()).toContain("Game error: Can't find variable: drawPaddle")
+    })
+
+    it('shows why when the fix fails, and keeps the game as it was generated', async () => {
+      // OpenAI, whose answer to the fix is cut off at its limit
+      localStorage.setItem('selectedProvider', JSON.stringify('openai'))
+      credentials.set('openai:apiKey', 'sk-test')
+      const cutOff =
+        'The answer from gpt-5.5 was cut off at the limit of 32768 tokens, reasoning included, before the game was complete. Retry, or describe a simpler game.'
+      answerWith(providers.openai, broken)
+      providers.openai.generateGame.mockImplementationOnce(async function* () {
+        throw new Error(cutOff)
+      })
+      const wrapper = await startAppWithGames()
+      usePersistedStore().selectedModels.openai = 'gpt-5.5'
+      await generate()
+      const brokenId = useAppStore().loadedGame
+
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      expect(providers.openai.generateGame).toHaveBeenCalledTimes(2)
+      expect(providers.openai.generateGame.mock.calls[1][1].model).toBe('gpt-5.5')
+      expect(wrapper.text()).toContain(cutOff)
+      expect(button(wrapper, 'Retry')).toBeDefined()
+      expect(saveGame).toHaveBeenCalledOnce()
+      expect(deleteGameFromFS).not.toHaveBeenCalled()
+      expect(useAppStore().gameList.map((game) => game.id)).toEqual([brokenId])
+    })
+
+    it('is not fixed when it fails after its first 5 seconds', async () => {
+      vi.useFakeTimers()
+      answerWith(providers.anthropic, broken)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      await sendFromGame(wrapper, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(5000)
+      await sendFromGame(wrapper, { type: 'error', data: { message: 'An error after 5 s' } })
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+      expect(gameOnScreen(wrapper)).toContain('drawBall()')
+      expect(notifications()).toContain('Game error: An error after 5 s')
+    })
+
+    it('is not fixed when it was opened from the list', async () => {
+      addSavedGame('100', 'Tetris')
+      answerWith(providers.anthropic, broken)
+      const wrapper = await startAppWithGames()
+      await generate()
+      const pong = useAppStore().loadedGame
+
+      // The new game, opened again from the list, fails as it starts
+      await openGame(wrapper, pong)
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      expect(gameOnScreen(wrapper)).toContain('drawBall()')
+      // So does a saved game
+      await openGame(wrapper, '100')
+      await sendFromGame(wrapper, { type: 'error', data: { message: "Can't find variable: tetris" } })
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+      expect(gameOnScreen(wrapper)).toContain('tetris()')
+      expect(notifications()).toContain("Game error: Can't find variable: tetris")
+    })
+
+    it('is not fixed when the user has switched provider since it was generated', async () => {
+      credentials.set('openai:apiKey', 'sk-test')
+      answerWith(providers.anthropic, broken)
+      const wrapper = await startAppWithGames()
+      await generate()
+
+      await switchProvider(wrapper, 'openai')
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+
+      expect(providers.anthropic.generateGame).toHaveBeenCalledOnce()
+      expect(providers.openai.generateGame).not.toHaveBeenCalled()
+      expect(gameOnScreen(wrapper)).toContain('drawBall()')
     })
   })
 })

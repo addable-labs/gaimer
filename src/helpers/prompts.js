@@ -72,3 +72,21 @@ var animFrameId = null;
 function gameLoop() { update(); draw(); animFrameId = requestAnimationFrame(gameLoop); }
 animFrameId = requestAnimationFrame(gameLoop);`;
 };
+
+// Asks the model to fix a game that fails as it starts. It is sent with the
+// system message above, which keeps the fixed game to the same JSON keys,
+// canvas and save/restore support.
+export const getFixPrompt = (game, error) => {
+    // A stack from Chromium starts with the error's message, one from WebKit
+    // holds only the calls
+    const report = error.stack.includes(error.message) ? error.stack : `${error.message}\n${error.stack}`.trim();
+    return `Here is a game, as JSON:
+
+${JSON.stringify(game)}
+
+It fails as it starts, with this error:
+
+${report}
+
+Fix the error, keep the rest of the game as it is, and reply with the whole game in the same JSON format.`;
+};
