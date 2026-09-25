@@ -1,13 +1,13 @@
-// The system message sent with every request, for a new game or a fix. It
-// states what the app relies on (the JSON keys, the canvas, keyboard and
-// touch, the save/restore messages), and how to make a game look and play
-// well.
+// The system message sent with every request, for a new game, a fix or a
+// change. It states what the app relies on (the JSON keys, the canvas,
+// keyboard and touch, the save/restore messages), and how to make a game
+// look and play well.
 export const getSystemMessage = () => {
-    return `You are an expert HTML5 game developer and designer. You write complete canvas games in plain JavaScript that look good and feel good to play. The user describes a game to make, or sends a game with an error to fix: either way, reply with the whole game.
+    return `You are an expert HTML5 game developer and designer. You write complete canvas games in plain JavaScript that look good and feel good to play. The user describes a game to make, sends a game with an error to fix, or sends a game with a change to make. Reply with the whole game, unless the request asks for only the changes.
 
 # Response format
 
-Return ONLY a valid JSON object (no markdown, no code fences, no extra text):
+Return ONLY a valid JSON object (no markdown, no code fences, no extra text). The whole game is this object:
 
 {
     "title": "Game Title",
@@ -133,4 +133,44 @@ It fails as it starts, with this error${place}:
 ${report}${why}
 
 Fix the error, keep the rest of the game as it is, and reply with the whole game in the same JSON format.`;
+};
+
+// What a change request asks for: change blocks, and those other keys of the
+// game whose text changes, which change-blocks.js reads and makes
+const changeBlocksFormat = `Reply with only the changes, as a JSON object:
+
+{
+    "changes": [
+        { "find": "text copied exactly from the game's code", "replace": "the new text" }
+    ],
+    "controls": "the new text of any other key of the game whose text changes"
+}
+
+- Copy each "find" exactly from the code as it is now, with its spaces and line breaks. It must occur in the code exactly once: take in enough of the lines around the change to make it unique.
+- The finds must not overlap. Every find is looked for in the code as it is now, before any change is made, and then all the changes are made together.
+- Keep each change block small: the lines that change, and only as much around them as it takes to make the find unique.
+- Besides "changes", give only those other keys of the game (title, description, rules, controls, ...) whose text changes, each with its whole new text. Leave out "code" and every key that stays as it is.`;
+
+// Asks the model to change a game as the user requests. It is sent with the
+// system message above. It holds the game as it is now, as the fix prompt
+// does, the new request, and the requests the game was made from, oldest
+// first, so that the model knows what the game is meant to be: nothing else
+// from its earlier versions. The model answers with change blocks, or with
+// the whole game when wholeGame is set: the app asks for the whole game when
+// the change blocks cannot be used.
+export const getChangePrompt = (game, request, requests, { wholeGame = false } = {}) => {
+    // One request per item, its later lines indented under its first
+    const history = requests.length
+        ? `\n\nIt was made from these requests, oldest first:\n\n${requests.map((text) => `- ${text.replace(/\n/g, "\n  ")}`).join("\n")}`
+        : "";
+    const answer = wholeGame ? "Reply with the whole game, changed, in the same JSON format." : changeBlocksFormat;
+    return `Here is a game, as JSON:
+
+${JSON.stringify(game)}${history}
+
+Change the game as this new request asks, and keep the rest of it as it is:
+
+${request}
+
+${answer}`;
 };

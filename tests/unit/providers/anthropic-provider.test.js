@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createAnthropicProvider } from '../../../src/providers/anthropic-provider.js'
 import { shellExec, shellExecWithInput, withTempFile } from '../../../src/helpers/shell.js'
+import { parseChangeAnswer } from '../../../src/helpers/change-blocks.js'
+import { AnswerFormatError } from '../../../src/helpers/json-utils.js'
 
 // Mock the shell helper
 vi.mock('../../../src/helpers/shell.js', () => ({
@@ -286,6 +288,56 @@ describe('Anthropic Provider', () => {
       shellExecWithInput.mockResolvedValueOnce(cliOutput('Here is your game!'))
 
       await expect(generate()).rejects.toThrow('Failed to parse game response')
+    })
+
+    describe('with a parse function of the caller\'s, as for a change', () => {
+      // An answer to a change request: change blocks, with no title or code
+      const changes = { changes: [{ find: 'draw()', replace: 'drawFast()' }] }
+
+      it('runs the same command line, with the request on stdin, and gives the answer as the function reads it', async () => {
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+        await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
+        const gameLine = shellExecWithInput.mock.lastCall[0]
+
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(changes)))
+        const chunks = await generate('Make the ball faster', { model: 'sonnet', systemMessage: 'You write games.', parse: parseChangeAnswer })
+
+        expect(shellExecWithInput).toHaveBeenLastCalledWith(gameLine, 'Make the ball faster')
+        expect(chunks).toEqual([{ type: 'complete', data: { changes: changes.changes, keys: {} } }])
+      })
+
+      it('fails with an AnswerFormatError, saying why, when the function cannot read the answer', async () => {
+        // A whole game where change blocks were asked for
+        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+
+        const error = await generate('Make the ball faster', { parse: parseChangeAnswer }).catch((error) => error)
+
+        expect(error).toBeInstanceOf(AnswerFormatError)
+        expect(error.message).toBe('Failed to parse game response: Missing required field: changes (a list of change blocks)')
+      })
+
+      it('fails with the Claude CLI\'s error, which is no AnswerFormatError, when the request fails', async () => {
+        shellExecWithInput.mockResolvedValueOnce(JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          result: 'Not logged in · Please run /login',
+        }) + '\n')
+
+        const error = await generate('Make the ball faster', { parse: parseChangeAnswer }).catch((error) => error)
+
+        expect(error.message).toBe('Claude CLI error: Not logged in · Please run /login')
+        expect(error).not.toBeInstanceOf(AnswerFormatError)
+      })
+    })
+
+    it('fails with an AnswerFormatError when the answer is not a game', async () => {
+      shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify({ title: 'Pong' })))
+
+      const error = await generate().catch((error) => error)
+
+      expect(error).toBeInstanceOf(AnswerFormatError)
+      expect(error.message).toBe('Failed to parse game response: Missing required field: code')
     })
   })
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { getFixPrompt, getSystemMessage } from '../../../src/helpers/prompts.js'
+import { getChangePrompt, getFixPrompt, getSystemMessage } from '../../../src/helpers/prompts.js'
+import { GAME_TEXT_KEYS } from '../../../src/helpers/change-blocks.js'
 
 // The system message states the contract the app relies on: the game's JSON,
 // the canvas, the input, and the save/restore messages. These tests keep a
@@ -15,8 +16,17 @@ describe('getSystemMessage', () => {
     expect(message).toContain('"code": "Plain JavaScript code, with NO <script> tags"')
   })
 
-  it('serves a fix request as well as a new game', () => {
-    expect(message).toContain('describes a game to make, or sends a game with an error to fix')
+  it('serves a new game, a fix and a change, and asks for the whole game unless the request asks for only the changes', () => {
+    expect(message).toContain(
+      'The user describes a game to make, sends a game with an error to fix, or sends a game with a change to make. Reply with the whole game, unless the request asks for only the changes.'
+    )
+    expect(message).not.toContain('either way')
+  })
+
+  it('gives the format of the whole game, whose keys but code a change answer can change', () => {
+    const format = message.slice(message.indexOf('The whole game is this object:'), message.indexOf('\n}\n'))
+    const keys = [...format.matchAll(/^ {4}"([\w-]+)": "/gm)].map(([, key]) => key)
+    expect(keys).toEqual([...GAME_TEXT_KEYS, 'code'])
   })
 
   it('names the canvas in the sandboxed iframe, whose size the game reads and never sets', () => {
@@ -199,5 +209,59 @@ describe('getFixPrompt', () => {
         expect(prompt).not.toContain('The game page puts code of its own')
       }
     })
+  })
+})
+
+describe('getChangePrompt', () => {
+  const game = { title: 'Pong', controls: 'Arrow keys', code: 'var speed = 5;\nball(speed);' }
+  const requests = ['A game of pong', 'Make the paddles bigger']
+
+  it('holds the game as JSON, the requests it was made from, oldest first, and the new request', () => {
+    const prompt = getChangePrompt(game, 'Make the ball faster', requests)
+
+    // The game as the fix prompt sends it: its JSON with the code
+    expect(prompt).toContain(`Here is a game, as JSON:\n\n${JSON.stringify(game)}\n\n`)
+    expect(prompt).toContain(
+      'It was made from these requests, oldest first:\n\n- A game of pong\n- Make the paddles bigger\n\n'
+    )
+    expect(prompt).toContain(
+      'Change the game as this new request asks, and keep the rest of it as it is:\n\nMake the ball faster\n\n'
+    )
+  })
+
+  it('asks for change blocks as a JSON object, and states their rules', () => {
+    const prompt = getChangePrompt(game, 'Make the ball faster', requests)
+
+    expect(prompt).toContain('Reply with only the changes, as a JSON object:')
+    expect(prompt).toContain('{ "find": "text copied exactly from the game\'s code", "replace": "the new text" }')
+    expect(prompt).toContain('It must occur in the code exactly once')
+    expect(prompt).toContain('The finds must not overlap. Every find is looked for in the code as it is now, before any change is made, and then all the changes are made together.')
+    expect(prompt).toContain('give only those other keys of the game (title, description, rules, controls, ...) whose text changes')
+    expect(prompt).toContain('Leave out "code"')
+    expect(prompt).not.toContain('whole game')
+  })
+
+  it('asks for the whole game when the change blocks cannot be used, with the same game and requests', () => {
+    const blocks = getChangePrompt(game, 'Make the ball faster', requests)
+    const whole = getChangePrompt(game, 'Make the ball faster', requests, { wholeGame: true })
+
+    expect(whole).toMatch(/\n\nReply with the whole game, changed, in the same JSON format\.$/)
+    expect(whole).not.toContain('"changes"')
+    // Up to what they ask for, the two requests are the same
+    const asked = 'Make the ball faster\n\n'
+    expect(whole.slice(0, whole.indexOf(asked))).toBe(blocks.slice(0, blocks.indexOf(asked)))
+  })
+
+  it('puts each line of a request of several lines in its item', () => {
+    const prompt = getChangePrompt(game, 'Add a boss', ['A game of pong\nwith two players', 'Make the ball faster'])
+
+    expect(prompt).toContain('- A game of pong\n  with two players\n- Make the ball faster\n\n')
+  })
+
+  it('leaves out the list when the game has no requests known', () => {
+    const prompt = getChangePrompt(game, 'Make the ball faster', [])
+
+    expect(prompt).not.toContain('It was made from')
+    expect(prompt).toContain(`${JSON.stringify(game)}\n\nChange the game as this new request asks`)
   })
 })

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createOpenAIProvider } from '../../../src/providers/openai-provider.js'
+import { parseChangeAnswer } from '../../../src/helpers/change-blocks.js'
+import { AnswerFormatError } from '../../../src/helpers/json-utils.js'
 
 // The client the provider made last
 const openai = vi.hoisted(() => ({ client: null }))
@@ -215,6 +217,58 @@ describe('OpenAI Provider', () => {
       await expect(generateWithAnswer(provider, 'gpt-4o', untitled)).rejects.toThrow(
         'Failed to parse game response: Missing required field: title'
       )
+    })
+  })
+
+  describe('with a parse function of the caller\'s, as for a change', () => {
+    // An answer to a change request: change blocks, with no title or code
+    const changes = { changes: [{ find: 'draw()', replace: 'drawFast()' }], rules: 'First to 7 wins' }
+
+    // Sends the request with the options, OpenAI answering with the text
+    function answerWith(content, requestOptions) {
+      openai.client.chat.completions.create.mockResolvedValueOnce({ choices: [{ message: { content }, finish_reason: 'stop' }] })
+      return provider.generateGame('Make the ball faster', requestOptions).next()
+    }
+
+    beforeEach(async () => {
+      await provider.connect({ apiKey: 'sk-test-key' })
+    })
+
+    it('sends the request as a game request, in JSON mode, and gives the answer as the function reads it', async () => {
+      const gameRequest = await requestFor(provider, 'gpt-5.5')
+
+      const { value } = await answerWith(JSON.stringify(changes), { ...options, model: 'gpt-5.5', parse: parseChangeAnswer })
+
+      expect(openai.client.chat.completions.create.mock.lastCall[0]).toStrictEqual({
+        ...gameRequest,
+        messages: [messages[0], { role: 'user', content: 'Make the ball faster' }],
+      })
+      expect(value).toEqual({ type: 'complete', data: { changes: changes.changes, keys: { rules: 'First to 7 wins' } } })
+    })
+
+    it('fails with an AnswerFormatError, saying why, when the function cannot read the answer', async () => {
+      const error = await answerWith('{"changes":[{"find":"","replace":"x"}]}', { ...options, parse: parseChangeAnswer }).catch((error) => error)
+
+      expect(error).toBeInstanceOf(AnswerFormatError)
+      expect(error.message).toBe('Failed to parse game response: Change block 1 has no text to find')
+    })
+
+    it('fails with an error that is no AnswerFormatError when the answer is cut off', async () => {
+      openai.client.chat.completions.create.mockResolvedValueOnce({
+        choices: [{ message: { content: '{"changes":[{"find":"dr' }, finish_reason: 'length' }],
+      })
+
+      const error = await provider.generateGame('Make the ball faster', { ...options, parse: parseChangeAnswer }).next().catch((error) => error)
+
+      expect(error.message).toContain('was cut off at the limit of 16384 tokens')
+      expect(error).not.toBeInstanceOf(AnswerFormatError)
+    })
+
+    it('reads an answer as a game without the function, and fails with an AnswerFormatError when it is not one', async () => {
+      const error = await answerWith(JSON.stringify(changes), options).catch((error) => error)
+
+      expect(error).toBeInstanceOf(AnswerFormatError)
+      expect(error.message).toBe('Failed to parse game response: Missing required field: title')
     })
   })
 

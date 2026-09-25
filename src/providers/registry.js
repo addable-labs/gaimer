@@ -11,6 +11,9 @@
  *   isConnected(): boolean
  *   listModels(): Promise<string[]>
  *   generateGame(prompt, options): AsyncGenerator<StreamChunk>
+ *     options.parse, when given, reads the answer's text in place of
+ *     safeParseGameJSON, and returns { ok, data } or { ok: false, error };
+ *     an answer it cannot read fails with AnswerFormatError
  */
 export function createProviderRegistry() {
   const providers = new Map()

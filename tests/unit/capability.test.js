@@ -3,6 +3,7 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { Quasar } from 'quasar'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import { createAnthropicProvider } from '../../src/providers/anthropic-provider.js'
+import { parseChangeAnswer } from '../../src/helpers/change-blocks.js'
 import { grants, openerOpens, pluginCommands, shellRuns } from '../capability.js'
 import { shell } from '../plugin-shell.js'
 
@@ -84,6 +85,25 @@ describe('main window capability', () => {
         zsh('exec claude auth status'),
         ...models.map((model) => zsh(expect.stringContaining(`exec claude -p --model ${model} `))),
       ])
+    })
+
+    it('runs a change request with the command line of a game generation, only the prompt differing', async () => {
+      const line = await generation('sonnet')
+      // Claude answers the change request with change blocks
+      shell.output = (process) => (process.args[2].startsWith('exec claude -p ')
+        ? JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify({ changes: [{ find: 'draw()', replace: 'drawFast()' }] }) }) + '\n'
+        : claudeCli(process))
+      const provider = createAnthropicProvider()
+      await provider.connect()
+
+      const { value } = await provider.generateGame('Make the ball faster', { model: 'sonnet', parse: parseChangeAnswer }).next()
+
+      expect(value.data.changes).toEqual([{ find: 'draw()', replace: 'drawFast()' }])
+      const change = shell.ran.at(-1).args[2]
+      expect(runs(change)).toEqual(zsh(change))
+      // The temp files are named by the time they are written
+      const unnumbered = (text) => text.replace(/-[0-9]+\.txt'/g, "-N.txt'")
+      expect(unnumbered(change)).toBe(unnumbered(line))
     })
 
     it('refuses any other command line', () => {

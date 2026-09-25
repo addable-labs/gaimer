@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { safeParseGameJSON } from "../helpers/json-utils.js";
+import { AnswerFormatError, safeParseGameJSON } from "../helpers/json-utils.js";
 
 // Room for a GPT-5 model's reasoning, on top of the room for the game
 // (maxTokens): its token limit counts both
@@ -100,9 +100,12 @@ export function createOpenAIProvider() {
             const content = choice?.message?.content;
             if (!content) throw new Error("Empty response from OpenAI");
 
-            const result = safeParseGameJSON(content);
+            // The answer is a game, unless the caller reads it with a parse
+            // function of its own
+            const parse = options.parse || safeParseGameJSON;
+            const result = parse(content);
             if (!result.ok) {
-                throw new Error(`Failed to parse game response: ${result.error}`);
+                throw new AnswerFormatError(result.error);
             }
             yield { type: "complete", data: result.data };
         },

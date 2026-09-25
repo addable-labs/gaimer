@@ -1,5 +1,5 @@
 import { shellExec, shellExecWithInput, withTempFile } from "../helpers/shell.js";
-import { safeParseGameJSON } from "../helpers/json-utils.js";
+import { AnswerFormatError, safeParseGameJSON } from "../helpers/json-utils.js";
 
 // The model a game is generated with when the user has chosen none
 const DEFAULT_MODEL = "sonnet";
@@ -119,8 +119,10 @@ export function createAnthropicProvider() {
 
             // Run Claude as a plain completion: Gaimer's system prompt
             // replaces Claude Code's, the built-in tools are off, and no
-            // session is saved to disk. Only the user's description goes on
-            // stdin. The user's own Claude Code setup stays out of it:
+            // session is saved to disk. Only the prompt goes on stdin: the
+            // user's description, or a request to fix or change a game. The
+            // command line is the same for each. The user's own Claude Code
+            // setup stays out of it:
             // --safe-mode skips their CLAUDE.md, hooks, plugins and skills
             // but still reads the subscription sign-in (--bare would not),
             // and --strict-mcp-config with no --mcp-config starts no MCP
@@ -138,9 +140,12 @@ export function createAnthropicProvider() {
                 throw err;
             });
 
-            const result = safeParseGameJSON(cliResult(output));
+            // The answer is a game, unless the caller reads it with a parse
+            // function of its own
+            const parse = options.parse || safeParseGameJSON;
+            const result = parse(cliResult(output));
             if (!result.ok) {
-                throw new Error(`Failed to parse game response: ${result.error}`);
+                throw new AnswerFormatError(result.error);
             }
             yield { type: "complete", data: result.data };
         },
