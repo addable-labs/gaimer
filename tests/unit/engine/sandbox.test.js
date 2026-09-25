@@ -2,16 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { createSandbox } from '../../../src/engine/sandbox.js'
-import { gameScript, parsePage } from '../../game-page.js'
+import { gameScript, harnessScript, parsePage } from '../../game-page.js'
 import tauriConfig from '../../../src-tauri/tauri.conf.json'
 
 // Runs the game page's harness, its first script, with a stand-in window and
 // parent window, and returns them
-function runHarness(page) {
+function runHarness(srcdoc) {
+  const page = parsePage(srcdoc)
+  Object.defineProperty(page, 'currentScript', { value: page.querySelector('script') })
   const win = new EventTarget()
   const parent = { postMessage: vi.fn() }
-  const harness = page.querySelector('script').textContent
-  new Function('window', 'document', 'parent', harness)(win, page, parent)
+  new Function('window', 'document', 'parent', harnessScript(srcdoc))(win, page, parent)
   return { win, parent }
 }
 
@@ -206,9 +207,24 @@ describe('createSandbox', () => {
     const scripts = parsePage(srcdoc).querySelectorAll('script')
     expect(scripts).toHaveLength(2)
     // The game's syntax error leaves the harness able to run and report it
-    expect(scripts[0].textContent).not.toContain('let x = ;')
-    expect(() => new Function(scripts[0].textContent)).not.toThrow()
+    expect(harnessScript(srcdoc)).not.toContain('let x = ;')
+    expect(() => new Function(harnessScript(srcdoc))).not.toThrow()
     expect(gameScript(srcdoc)).toContain('let x = ;')
+  })
+
+  it('the game page has no inline script: it loads the harness and then the game script from data: URLs', () => {
+    // In the built app, Tauri adds the hash of each of the app's script files
+    // to the script-src it sends. A hash voids 'unsafe-inline', and the game
+    // page, which takes a copy of that policy, could run no inline script.
+    const srcdoc = loadSrcdoc('// game')
+    const scripts = [...parsePage(srcdoc).querySelectorAll('script')]
+    // Each has a src and no text. With no async or defer, the harness runs
+    // before the game script.
+    expect(scripts.map((script) => script.getAttributeNames())).toEqual([['src'], ['src']])
+    expect(scripts.map((script) => script.textContent)).toEqual(['', ''])
+    // Each src is a data: URL, of the harness and then of the game script
+    expect(harnessScript(srcdoc)).toContain('function __gaimer_reportError(')
+    expect(gameScript(srcdoc)).toContain('// game')
   })
 
   it('loadGame() loads the game script from a data: URL, which holds the game code as written', () => {
@@ -239,11 +255,10 @@ describe('createSandbox', () => {
   it("the window's policy, which the game page inherits, lets the page run its scripts", () => {
     // A page set through srcdoc takes a copy of its parent's policy, and each
     // of its scripts must pass both policies. Tauri sends the window's policy
-    // with the built app's pages.
+    // with the built app's pages, with hashes added to script-src: there
+    // 'unsafe-inline' does not count for scripts, but data: does.
     const windowPolicy = tauriConfig.app.security.csp
-    expect(sources(windowPolicy, 'script-src')).toEqual(
-      expect.arrayContaining(["'unsafe-inline'", 'data:'])
-    )
+    expect(sources(windowPolicy, 'script-src')).toContain('data:')
   })
 
   it("the window page has no style element, so the game page's style applies in the built app", () => {
@@ -272,7 +287,7 @@ describe('createSandbox', () => {
   })
 
   it('the game page reports errors to the parent', () => {
-    const { win, parent } = runHarness(loadPage('// game'))
+    const { win, parent } = runHarness(loadSrcdoc('// game'))
     const error = new Error('boom')
     win.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: boom' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
@@ -288,27 +303,38 @@ describe('createSandbox', () => {
     )
   })
 
-  it('the game page calls the game script game.js in the stack traces it reports', () => {
-    const { win, parent } = runHarness(loadPage('// game'))
-    const url = 'data:text/javascript;charset=utf-8;base64,KGZ1bmN0aW9uKCkgewogIHRyeSB7Cg=='
-    // As Chromium writes a stack trace
-    const error = { message: 'boom', stack: `Error: boom\n    at tick (${url}:3:19)\n    at ${url}:9:3` }
+  it('the game page calls the harness harness.js and the game script game.js in the stack traces it reports', () => {
+    const srcdoc = loadSrcdoc('// game')
+    const { win, parent } = runHarness(srcdoc)
+    const [harness, game] = [...parsePage(srcdoc).querySelectorAll('script')].map((script) => script.getAttribute('src'))
+    // The game throws on a message the harness passes it. As Chromium writes
+    // the stack trace:
+    const error = {
+      message: 'boom',
+      stack: `Error: boom\n    at tick (${game}:3:19)\n    at window.__gaimer_onMessage (${game}:9:3)\n    at ${harness}:11:14`
+    }
     win.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: boom' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
-      { type: 'error', data: { message: 'boom', stack: 'Error: boom\n    at tick (game.js:3:19)\n    at game.js:9:3' } },
+      {
+        type: 'error',
+        data: {
+          message: 'boom',
+          stack: 'Error: boom\n    at tick (game.js:3:19)\n    at window.__gaimer_onMessage (game.js:9:3)\n    at harness.js:11:14'
+        }
+      },
       '*'
     )
     // As WebKit writes it
-    error.stack = `tick@${url}:3:19\n@${url}:9:3`
+    error.stack = `tick@${game}:3:19\n@${game}:9:3\n@${harness}:11:14`
     win.dispatchEvent(new ErrorEvent('error', { error, message: 'Error: boom' }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
-      { type: 'error', data: { message: 'boom', stack: 'tick@game.js:3:19\n@game.js:9:3' } },
+      { type: 'error', data: { message: 'boom', stack: 'tick@game.js:3:19\n@game.js:9:3\n@harness.js:11:14' } },
       '*'
     )
   })
 
   it('the game page reports unhandled promise rejections to the parent', () => {
-    const { win, parent } = runHarness(loadPage('// game'))
+    const { win, parent } = runHarness(loadSrcdoc('// game'))
     const error = new Error('no level data')
     win.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }))
     expect(parent.postMessage).toHaveBeenLastCalledWith(
