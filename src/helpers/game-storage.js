@@ -29,12 +29,10 @@ async function getStorageDir() {
  */
 export async function initStorage() {
     const dir = await getStorageDir();
-    console.log("[storage] Initializing storage at:", dir);
     try {
         const dirExists = await exists(dir);
         if (!dirExists) {
             await mkdir(dir, { recursive: true });
-            console.log("[storage] Created directory");
         }
     } catch (err) {
         console.warn("[storage] Could not check/create directory, attempting mkdir:", err.message);

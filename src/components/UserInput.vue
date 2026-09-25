@@ -1,10 +1,8 @@
 <script setup>
 import { computed, ref } from "vue";
-import { useQuasar } from "quasar";
 import { useAppStore } from "../stores/app-store.js";
 import { storeToRefs } from "pinia";
 
-const $q = useQuasar();
 const appStore = useAppStore();
 const { gameDescription, generating } = storeToRefs(appStore);
 
@@ -57,7 +55,6 @@ const remainingCharactersText = computed(() => {
                     flat
                     icon="mdi-send"
                     color="primary"
-                    stack-label
                     :loading="generating"
                     @click="handleUserInput()"
                 >

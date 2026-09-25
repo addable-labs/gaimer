@@ -85,8 +85,6 @@ describe('GameContainer', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
-    // The component logs when the game is ready
-    vi.spyOn(console, 'log').mockImplementation(() => {})
     const measure = Element.prototype.getBoundingClientRect
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
       if (!this.classList.contains('game-canvas-wrapper')) return measure.call(this)

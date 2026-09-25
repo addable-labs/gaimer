@@ -29,9 +29,6 @@
     line-height: 24px;
     font-weight: 400;
 
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -45,36 +42,4 @@
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --safe-area-left: env(safe-area-inset-left, 0px);
     --safe-area-right: env(safe-area-inset-right, 0px);
-}
-
-.container {
-    margin: 0;
-    padding-top: 10vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
-}
-
-h1 {
-    font-size: 2rem !important;
-    line-height: 2rem !important;
-    padding: 1rem 0;
-    font-weight: 500;
-    margin: 0 0 1rem;
-}
-
-h2 {
-    font-size: 1.5rem !important;
-    line-height: 1.5rem !important;
-    padding: 0.5rem 0;
-    font-weight: 500;
-    margin: 1rem 0 1rem;
-}
-
-h3 {
-    font-size: 1.1rem !important;
-    line-height: 1.1rem !important;
-    padding: 0.45rem 0;
-    margin: 1rem 0 1rem;
 }

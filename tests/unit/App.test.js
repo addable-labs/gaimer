@@ -168,8 +168,6 @@ describe('App', () => {
     providers.openai = fakeProvider('openai')
     providers.anthropic = fakeProvider('anthropic')
     setActivePinia(createPinia())
-    // App logs every state change
-    vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
   afterEach(() => {

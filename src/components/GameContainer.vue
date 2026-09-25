@@ -87,7 +87,6 @@ function loadGameScript() {
                 color: "negative",
             });
         } else if (msg.type === "ready") {
-            console.log("Game ready in sandbox");
             // Probe for save/restore support, then offer restore if available
             probeSaveSupport().then(() => checkAndOfferRestore());
         }

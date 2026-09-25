@@ -23,7 +23,6 @@ app.use(Quasar, {
         brand: { primary: "#83F35D", secondary: "#FF6F00" },
     },
     iconSet: quasarIconSet,
-    extras: ["material-icons", "mdi-v7"],
 });
 
 // ---------------------------------------------------------------------------------------------

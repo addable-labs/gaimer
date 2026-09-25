@@ -1,4 +1,6 @@
 import { Command } from "@tauri-apps/plugin-shell";
+import { writeTextFile, remove } from "@tauri-apps/plugin-fs";
+import { tempDir, join } from "@tauri-apps/api/path";
 
 /**
  * Run a command through a login shell to ensure the user's full PATH is available.
@@ -64,9 +66,6 @@ export async function shellExec(command, timeoutMs = 180000) {
  * The file is removed once fn has finished.
  */
 export async function withTempFile(prefix, text, fn) {
-    const { writeTextFile, remove } = await import("@tauri-apps/plugin-fs");
-    const { tempDir, join } = await import("@tauri-apps/api/path");
-
     const tmp = await tempDir();
     const tmpFile = await join(tmp, `${prefix}-${Date.now()}.txt`);
 

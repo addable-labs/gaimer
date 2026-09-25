@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { ref, watch } from "vue";
 import { usePersistedStore } from "../stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import ConnectClaude from "./ConnectClaude.vue";

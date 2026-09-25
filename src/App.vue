@@ -164,7 +164,6 @@ const generateGame = async (prompt) => {
             rules: jsonResponse.rules,
         });
         state.value = "done";
-        console.log("Game generated");
     } catch (error) {
         console.error("Failed to generate game:", error);
         state.value = "error";
@@ -217,17 +216,10 @@ const greetingMessage = `
 
 const state = ref("idle");
 const gameStates = ref({
-    idle: { message: greetingMessage, style: "" },
-    generating: { message: "Generating game...", style: "" },
-    loading: { message: "Loading game...", style: "" },
-    done: {
-        message: "",
-        style: "",
-    },
-    error: { message: "", style: "" },
+    idle: { message: greetingMessage },
+    loading: { message: "Loading game..." },
 });
 
-// Make sure to initiate the IndexedDB object store
 onBeforeUnmount(() => { stopElapsedTimer(); });
 
 onMounted(async () => {
@@ -256,17 +248,6 @@ watch(gameDescription, (newVal) => {
 
     generateGame(gameDescription.value);
     gameDescription.value = "";
-});
-
-// Watch for changes in the game state
-watch(state, (newVal, oldVal) => {
-    console.log(`State changed: ${oldVal} -> ${newVal}`);
-});
-
-watch(game, (newVal) => {
-    if (newVal) {
-        console.log("Game loaded", game.value.title);
-    }
 });
 </script>
 

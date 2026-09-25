@@ -6,14 +6,12 @@ import { shellExec } from "../helpers/shell.js";
 
 const emit = defineEmits(["connected", "disconnected"]);
 
-// State machine: checking → not_installed | not_authenticated | authenticating | connected | error
+// State machine: checking → not_installed | not_authenticated | authenticating | connected
 const phase = ref("checking");
-const errorMessage = ref("");
 const cliVersion = ref("");
 
 async function checkAvailability() {
     phase.value = "checking";
-    errorMessage.value = "";
 
     // Step 1: Check if claude CLI is installed
     try {
@@ -242,22 +240,6 @@ onMounted(() => {
                 icon="mdi-connection"
                 class="q-mt-md"
                 @click="disconnect"
-            />
-        </div>
-
-        <!-- Error -->
-        <div v-else-if="phase === 'error'" class="phase-content">
-            <q-icon name="mdi-alert-circle" color="negative" size="2em" />
-            <div class="q-mt-sm text-subtitle2 text-negative">Connection failed</div>
-            <div class="text-body2 q-mt-xs text-grey-5">{{ errorMessage }}</div>
-            <q-btn
-                outline
-                no-caps
-                color="grey-5"
-                label="Retry"
-                icon="mdi-refresh"
-                class="q-mt-md"
-                @click="checkAvailability"
             />
         </div>
     </div>
