@@ -50,7 +50,7 @@ export function createSandbox(container, options = {}) {
     // The catch reports an error thrown while the game starts.
     const gameScript = `(function() {
   try {
-    ${escapeScriptEnd(gameCode)}
+    ${gameCode}
     __gaimer_sendMessage('ready', {});
   } catch (e) {
     __gaimer_reportError(e, String(e));
@@ -205,13 +205,6 @@ window.addEventListener('unhandledrejection', function(event) {
       iframe = null
     }
   }
-}
-
-// "</script" anywhere in the game code, even inside a string, would end its
-// <script> element early. "<\/script" means the same in JavaScript strings,
-// regular expressions and comments.
-function escapeScriptEnd(code) {
-  return code.replace(/<\/(script)/gi, '<\\/$1')
 }
 
 // Base64 of the UTF-8 bytes of a string. btoa() takes only characters of a

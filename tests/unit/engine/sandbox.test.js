@@ -307,15 +307,15 @@ describe('createSandbox', () => {
     )
   })
 
-  it('loadGame() escapes </script in the game code, so it cannot end the script early', () => {
-    const srcdoc = loadSrcdoc('window.tags = ["</script><p>", "</SCRIPT >"]')
+  it('loadGame() keeps "</script" in the game code as written, and it cannot end the script early', () => {
+    const gameCode = 'window.tags = ["</script><p>", "</SCRIPT >"]; window.raw = String.raw`</script>`'
+    const srcdoc = loadSrcdoc(gameCode)
     const page = parsePage(srcdoc)
-    const scripts = page.querySelectorAll('script')
-    expect(scripts).toHaveLength(2)
+    expect(page.querySelectorAll('script')).toHaveLength(2)
     expect(page.querySelector('p')).toBeNull()
-    // The escaped code means the same as the game's
+    expect(gameScript(srcdoc)).toContain(gameCode)
     const { win, sendMessage } = runGame(srcdoc)
-    expect(win.tags).toEqual(['</script><p>', '</SCRIPT >'])
+    expect(win).toEqual({ tags: ['</script><p>', '</SCRIPT >'], raw: '</script>' })
     expect(sendMessage).toHaveBeenCalledWith('ready', {})
   })
 })
