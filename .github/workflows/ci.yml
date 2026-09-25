@@ -141,3 +141,11 @@ jobs:
 
       - name: Build iOS (simulator)
         run: yarn tauri ios build --target aarch64-sim
+
+      # From src-tauri/Info.ios.plist: the status bar's text is then white,
+      # over the app's dark header, whether the phone is set to light or dark
+      - name: Check that the iOS app is always dark
+        run: |
+          style=$(plutil -extract UIUserInterfaceStyle raw -o - src-tauri/gen/apple/build/arm64-sim/gaimer.app/Info.plist)
+          echo "UIUserInterfaceStyle: $style"
+          test "$style" = Dark

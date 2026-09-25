@@ -537,7 +537,8 @@ watch(gameDescription, (newVal) => {
 
 <template>
     <q-layout view="hHh Lpr lfF" class="JetBrainsMono-font text-primary">
-        <q-header class="safe-area-header">
+        <!-- Dark grey, as its toolbar, also in the band under an iPhone's status bar, whose text is white -->
+        <q-header class="bg-grey-10 safe-area-header">
             <q-toolbar class="bg-grey-10">
                 <q-btn
                     flat

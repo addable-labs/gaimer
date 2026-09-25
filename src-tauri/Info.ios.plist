@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Tauri adds these keys to the iOS app's Info.plist when it builds the
+	     app (yarn tauri ios build, yarn tauri ios dev). -->
+
+	<!-- The app is always dark (Quasar's dark mode), so iOS shows it dark
+	     too, whether the phone is set to light or dark: the status bar's text
+	     is then white, over the app's dark grey header. -->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+</dict>
+</plist>

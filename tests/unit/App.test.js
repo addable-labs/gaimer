@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
@@ -1884,6 +1884,19 @@ describe('App', () => {
       return terms.reduce((sum, term, i) => (i % 2 ? sum : sum + (terms[i - 1] === '-' ? -1 : 1) * parseInt(term)), 0)
     }
 
+    // The contrast of two #RRGGBB colours as WCAG 2 has it, from 1 (the same)
+    // to 21 (black and white). Text needs 4.5.
+    function contrast(...colours) {
+      const [lighter, darker] = colours.map((colour) => {
+        const [r, g, b] = colour.match(/[0-9a-f]{2}/gi).map((hex) => {
+          const value = parseInt(hex, 16) / 255
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+        })
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }).sort((a, b) => b - a)
+      return (lighter + 0.05) / (darker + 0.05)
+    }
+
     beforeEach(async () => {
       // The app's own styles (the tests have none of Quasar's), with the
       // insets that env() gives on the phone
@@ -1921,6 +1934,27 @@ describe('App', () => {
         // Below the drawer's Settings button, at its bottom
         drawerSettings: px(getComputedStyle(wrapper.find('[aria-label="Settings"]').element.closest('.q-item')).paddingBottom),
       }).toEqual({ header: insets.top, footer: insets.bottom, drawer: insets.top, drawerSettings: 16 + insets.bottom })
+    })
+
+    // The status bar's text follows the phone's light or dark setting unless
+    // the app says otherwise, and the band under it is the header's padding
+    it('shows the status bar\'s white text over a dark grey band, whether the phone is set to light or dark', async () => {
+      // The app tells iOS it is always dark, so the status bar's text is white
+      const plist = new DOMParser().parseFromString(readFileSync(resolve(__dirname, '../../src-tauri/Info.ios.plist'), 'utf-8'), 'application/xml')
+      const style = [...plist.querySelectorAll('dict > key')].find((key) => key.textContent === 'UIUserInterfaceStyle')
+      expect(style?.nextElementSibling.textContent).toBe('Dark')
+
+      // Quasar's styles, before the app's own as in the built app, give the
+      // header and its toolbar their colours
+      const quasarStyles = document.head.insertBefore(document.createElement('style'), styles)
+      quasarStyles.textContent = readFileSync(resolve(__dirname, '../../node_modules/quasar/dist/quasar.css'), 'utf-8')
+      onTestFinished(() => quasarStyles.remove())
+      await startApp({ Settings: true }, { attachTo: document.body })
+      const header = document.querySelector('.q-header')
+      const band = getComputedStyle(header).backgroundColor
+
+      expect(band).toBe(getComputedStyle(header.querySelector('.q-toolbar')).backgroundColor)
+      expect(contrast('#FFFFFF', band)).toBeGreaterThanOrEqual(4.5)
     })
 
     it('shows dialogs 24 px from the status bar and the home indicator, and notifications below the status bar', async () => {
