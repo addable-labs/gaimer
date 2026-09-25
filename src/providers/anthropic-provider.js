@@ -1,12 +1,12 @@
 import { shellExec, shellExecWithInput, withTempFile } from "../helpers/shell.js";
 import { AnswerFormatError, safeParseGameJSON } from "../helpers/json-utils.js";
+import { effortToRun } from "./claude-effort.js";
 
 // The model a game is generated with when the user has chosen none
 const DEFAULT_MODEL = "sonnet";
 
-// A game took about a minute to write at effort low, but the user's own
-// Claude setup can raise the effort (see generateGame): at high, sonnet's
-// default in the CLI, a Tetris took about 8
+// A game takes about a minute at effort low, the default, but the user can
+// choose a higher level: at high a Tetris took about 8 minutes
 const GAME_CALL_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
@@ -120,28 +120,33 @@ export function createAnthropicProvider() {
                 throw new Error("Provider not connected");
 
             const model = options.model || DEFAULT_MODEL;
+            const effort = effortToRun(options.effort);
             const systemMessage = options.systemMessage || "";
 
             // Run Claude as a plain completion: Gaimer's system prompt
             // replaces Claude Code's, the built-in tools are off, and no
             // session is saved to disk. Only the prompt goes on stdin: the
             // user's description, or a request to fix or change a game. The
-            // command line is the same for each. At --effort low Claude
-            // thinks next to nothing before it answers, so a game takes
-            // about a minute, not several (haiku has no effort levels, and
-            // the CLI sends its calls without one). Most of the user's own
-            // Claude Code setup stays out of it:
+            // command line is the same for each, at the effort level the
+            // user has chosen, or low: at low Claude thinks next to nothing
+            // before it answers, so a game takes about a minute, not several
+            // (haiku has no effort levels, and the CLI sends its calls
+            // without one). Most of the user's own Claude Code setup stays
+            // out of it:
             // --safe-mode skips their CLAUDE.md, hooks, plugins and skills
             // but still reads the subscription sign-in (--bare would not),
             // and --strict-mcp-config with no --mcp-config starts no MCP
-            // servers. Their settings.json is still read: --effort decides
+            // servers. Their settings.json is still read. --effort decides
             // over an effortLevel there, but a CLAUDE_CODE_EFFORT_LEVEL in
-            // their environment or in that file's env decides over --effort,
-            // and alwaysThinkingEnabled: false still turns thinking off,
-            // which matters little at low effort.
+            // their environment or in that file's env would decide over
+            // --effort. The env of the settings given with --settings
+            // decides over both, and sets that variable to the same level. A
+            // maxEffortLevel in their settings still caps the level, and
+            // alwaysThinkingEnabled: false there still turns thinking off.
+            const settings = JSON.stringify({ env: { CLAUDE_CODE_EFFORT_LEVEL: effort } });
             const output = await withTempFile("gaimer-system", systemMessage, (systemFile) =>
                 shellExecWithInput(
-                    `claude -p --model ${model} --effort low --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
+                    `claude -p --model ${model} --effort ${effort} --settings '${settings}' --tools "" --system-prompt-file '${systemFile}' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
                     prompt,
                     GAME_CALL_TIMEOUT_MS
                 )

@@ -38,6 +38,18 @@ function shownModel(wrapper) {
   return modelSelect(wrapper).find('.q-select__selected-value').text()
 }
 
+function effortSelect(wrapper) {
+  return wrapper.findAllComponents(QSelect).find((select) => select.props('label') === 'Effort')
+}
+
+// The value the Effort select shows, and the labels of its options
+function shownEffort(wrapper) {
+  return effortSelect(wrapper).find('.q-select__selected-value').text()
+}
+function effortLabels(wrapper) {
+  return effortSelect(wrapper).props('options').map((option) => option.label)
+}
+
 enableAutoUnmount(afterEach)
 
 describe('Settings', () => {
@@ -133,5 +145,92 @@ describe('Settings', () => {
     setActivePinia(createPinia())
     expect(usePersistedStore().selectedModels.openai).toBe('gpt-5.6-sol')
     expect(modelSelect(await openSettings(providers)).props('modelValue')).toBe('gpt-5.6-sol')
+  })
+
+  describe('Effort, in the Claude panel', () => {
+    const providers = { get: (id) => (id === 'openai' ? createOpenAIProvider() : createAnthropicProvider()) }
+
+    async function openClaudePanel() {
+      const wrapper = await openSettings(providers)
+      await pickProvider(wrapper, 'anthropic')
+      return wrapper
+    }
+
+    it('offers low, medium and high, each with how long a game usually takes with sonnet, the default model', async () => {
+      const wrapper = await openClaudePanel()
+      const levels = [
+        { label: 'Low · about a minute', value: 'low' },
+        { label: 'Medium · 1–5 minutes', value: 'medium' },
+        { label: 'High · 3–8 minutes', value: 'high' },
+      ]
+      expect(effortSelect(wrapper).props('options')).toEqual(levels)
+      expect(effortSelect(wrapper).props('disable')).toBe(false)
+
+      modelSelect(wrapper).vm.$emit('update:modelValue', 'sonnet')
+      await flushPromises()
+      expect(effortSelect(wrapper).props('options')).toEqual(levels)
+    })
+
+    it('shows "Low (default) · about a minute" while no level is chosen, and saves no level, so a later default applies', async () => {
+      const wrapper = await openClaudePanel()
+
+      expect(shownEffort(wrapper)).toBe('Low (default) · about a minute')
+      expect(usePersistedStore().claudeEffort).toBe('')
+      expect(localStorage.getItem('claudeEffort')).toBeNull()
+    })
+
+    it('saves the level picked, and shows it after a restart', async () => {
+      const wrapper = await openClaudePanel()
+      effortSelect(wrapper).vm.$emit('update:modelValue', 'medium')
+      await flushPromises()
+
+      expect(shownEffort(wrapper)).toBe('Medium · 1–5 minutes')
+      expect(usePersistedStore().claudeEffort).toBe('medium')
+
+      // The app starts again with what it saved
+      setActivePinia(createPinia())
+      expect(shownEffort(await openSettings(providers))).toBe('Medium · 1–5 minutes')
+    })
+
+    it('shows the levels without times for opus, whose games were not timed', async () => {
+      usePersistedStore().selectedModels.anthropic = 'opus'
+      const wrapper = await openClaudePanel()
+
+      expect(effortLabels(wrapper)).toEqual(['Low', 'Medium', 'High'])
+      expect(shownEffort(wrapper)).toBe('Low (default)')
+      expect(effortSelect(wrapper).props('disable')).toBe(false)
+
+      effortSelect(wrapper).vm.$emit('update:modelValue', 'high')
+      await flushPromises()
+      expect(shownEffort(wrapper)).toBe('High')
+    })
+
+    it('is turned off for haiku, which has no effort levels, and says so', async () => {
+      const store = usePersistedStore()
+      store.claudeEffort = 'high'
+      const wrapper = await openClaudePanel()
+      modelSelect(wrapper).vm.$emit('update:modelValue', 'haiku')
+      await flushPromises()
+
+      expect(effortSelect(wrapper).props('disable')).toBe(true)
+      expect(effortSelect(wrapper).text()).toContain('haiku has no effort levels')
+      expect(effortLabels(wrapper)).toEqual(['Low', 'Medium', 'High'])
+      expect(shownEffort(wrapper)).toBe('High')
+      // The level chosen stays, for another model
+      expect(store.claudeEffort).toBe('high')
+
+      modelSelect(wrapper).vm.$emit('update:modelValue', 'sonnet')
+      await flushPromises()
+      expect(effortSelect(wrapper).props('disable')).toBe(false)
+      expect(effortSelect(wrapper).text()).not.toContain('haiku has no effort levels')
+      expect(shownEffort(wrapper)).toBe('High · 3–8 minutes')
+    })
+
+    it('is not in the OpenAI panel', async () => {
+      const wrapper = await openSettings(providers)
+
+      expect(modelSelect(wrapper).exists()).toBe(true)
+      expect(effortSelect(wrapper)).toBeUndefined()
+    })
   })
 })

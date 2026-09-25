@@ -43,6 +43,40 @@ describe('persisted-store', () => {
     })
   })
 
+  describe('claudeEffort', () => {
+    it('starts with no level chosen, and saves none', () => {
+      expect(usePersistedStore().claudeEffort).toBe('')
+      expect(saved('claudeEffort')).toBeNull()
+    })
+
+    it('saves the level chosen and loads it on the next start', async () => {
+      for (const level of ['low', 'medium', 'high']) {
+        usePersistedStore().claudeEffort = level
+        await nextTick()
+
+        setActivePinia(createPinia())
+        expect(usePersistedStore().claudeEffort, level).toBe(level)
+      }
+      expect(saved('claudeEffort')).toBe('high')
+    })
+
+    it('has no level chosen with a store an earlier version saved, which has none', () => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      localStorage.setItem('selectedModels', JSON.stringify({ openai: '', anthropic: 'opus' }))
+
+      expect(usePersistedStore().claudeEffort).toBe('')
+    })
+
+    it('has no level chosen when the level saved is not one the app offers', () => {
+      for (const level of ['xhigh', 'max', 'turbo', 'LOW', 3, { level: 'high' }]) {
+        localStorage.setItem('claudeEffort', JSON.stringify(level))
+        setActivePinia(createPinia())
+
+        expect(usePersistedStore().claudeEffort, JSON.stringify(level)).toBe('')
+      }
+    })
+  })
+
   describe('migration from the single selectedModel', () => {
     it('gives an OpenAI model to the OpenAI provider', () => {
       localStorage.setItem('selectedModel', JSON.stringify('gpt-4o'))

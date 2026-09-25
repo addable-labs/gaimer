@@ -3,6 +3,7 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { Quasar } from 'quasar'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
 import { createAnthropicProvider } from '../../src/providers/anthropic-provider.js'
+import { CLAUDE_EFFORTS } from '../../src/providers/claude-effort.js'
 import { parseChangeAnswer } from '../../src/helpers/change-blocks.js'
 import { grants, openerOpens, pluginCommands, shellRuns } from '../capability.js'
 import { shell } from '../plugin-shell.js'
@@ -87,6 +88,16 @@ describe('main window capability', () => {
       ])
     })
 
+    it('runs a game generation at each effort level the app offers', async () => {
+      const provider = createAnthropicProvider()
+      await provider.connect()
+      for (const effort of CLAUDE_EFFORTS) {
+        await provider.generateGame('A game of pong', { model: 'sonnet', effort }).next()
+      }
+
+      expect(shell.ran.slice(1).map(({ args }) => args[2].match(/--effort (\S+)/)[1])).toEqual(['low', 'medium', 'high'])
+    })
+
     it('runs a change request with the command line of a game generation, only the prompt differing', async () => {
       const line = await generation('sonnet')
       // Claude answers the change request with change blocks
@@ -153,16 +164,45 @@ describe('main window capability', () => {
       expect(runs(line.replace('--tools ""', '--dangerously-skip-permissions --tools ""'))).toBeNull()
     })
 
-    it('refuses a game call at any effort but low', async () => {
+    it('runs a game call at effort low, medium or high, and refuses any other level', async () => {
       const line = await generation()
+      // The line with a level for --effort, and one for the
+      // CLAUDE_CODE_EFFORT_LEVEL that the settings given with --settings set
+      const atLevels = (flag, env) => line
+        .replace('--effort low', `--effort ${flag}`)
+        .replace('"CLAUDE_CODE_EFFORT_LEVEL":"low"', `"CLAUDE_CODE_EFFORT_LEVEL":"${env}"`)
 
-      for (const effort of ['medium', 'high', 'xhigh', 'max']) {
-        expect(runs(line.replace('--effort low', `--effort ${effort}`)), effort).toBeNull()
+      for (const effort of ['low', 'medium', 'high']) {
+        expect(runs(atLevels(effort, effort)), effort).toEqual(zsh(atLevels(effort, effort)))
+      }
+      // The Claude CLI's slower levels, no level, and levels with shell
+      // characters
+      for (const effort of ['xhigh', 'max', '', 'low; id', '$(id)', "low' --verbose '"]) {
+        expect(runs(atLevels(effort, 'low')), `--effort ${effort}`).toBeNull()
+        expect(runs(atLevels('low', effort)), `CLAUDE_CODE_EFFORT_LEVEL ${effort}`).toBeNull()
       }
       // With no --effort the CLI's default runs, and of two the CLI takes
       // the last
       expect(runs(line.replace(' --effort low', ''))).toBeNull()
       expect(runs(line.replace('--effort low', '--effort low --effort max'))).toBeNull()
+    })
+
+    it('refuses a game call without the settings that set the effort level, or with any other settings', async () => {
+      const line = await generation()
+      const settings = `'{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"low"}}'`
+
+      expect(runs(line.replace(` --settings ${settings}`, ''))).toBeNull()
+      // Settings can run commands of their own, as hooks or as the helper
+      // that gives an API key, and set other variables
+      for (const other of [
+        `'{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"low"},"apiKeyHelper":"id"}'`,
+        `'{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"id"}]}]},"env":{"CLAUDE_CODE_EFFORT_LEVEL":"low"}}'`,
+        `'{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"low","NODE_OPTIONS":"--require /tmp/x.js"}}'`,
+        `'/tmp/settings.json'`,
+        `${settings} --settings '/tmp/settings.json'`,
+      ]) {
+        expect(runs(line.replace(settings, other)), other).toBeNull()
+      }
     })
 
     it('refuses files other than the ones the provider writes', async () => {

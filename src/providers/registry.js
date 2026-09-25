@@ -14,6 +14,8 @@
  *     options.parse, when given, reads the answer's text in place of
  *     safeParseGameJSON, and returns { ok, data } or { ok: false, error };
  *     an answer it cannot read fails with AnswerFormatError
+ *     options.effort is the effort level chosen for Claude, which only the
+ *     Claude provider reads; without one, it runs at its default
  */
 export function createProviderRegistry() {
   const providers = new Map()

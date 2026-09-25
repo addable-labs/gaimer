@@ -3,6 +3,7 @@ import { ref, watch } from "vue";
 import { usePersistedStore } from "../stores/persisted-store.js";
 import { storeToRefs } from "pinia";
 import ConnectClaude from "./ConnectClaude.vue";
+import { CLAUDE_EFFORTS, DEFAULT_CLAUDE_EFFORT, hasEffortLevels, usualWait } from "../providers/claude-effort.js";
 
 const props = defineProps({
     registry: { type: Object, required: true },
@@ -11,7 +12,7 @@ const props = defineProps({
 });
 
 const persistedStore = usePersistedStore();
-const { apiKey, apiKeyError, selectedProvider, selectedModels } = storeToRefs(persistedStore);
+const { apiKey, apiKeyError, selectedProvider, selectedModels, claudeEffort } = storeToRefs(persistedStore);
 
 const userInput = ref(apiKey.value);
 const providerChoice = ref(selectedProvider.value || "openai");
@@ -51,6 +52,34 @@ function defaultModelLabel(providerId) {
     if (selectedModels.value[providerId]) return undefined;
     const defaultModel = props.registry.get(providerId)?.defaultModel;
     return defaultModel ? `${defaultModel} (default)` : undefined;
+}
+
+// The names of Claude's effort levels in the Effort select
+const effortNames = { low: "Low", medium: "Medium", high: "High" };
+
+// The Claude model a game is generated with: the one chosen, or else the
+// provider's default
+function claudeModel() {
+    return selectedModels.value.anthropic || props.registry.get("anthropic")?.defaultModel;
+}
+
+// An effort level as the Effort select shows it, with how long a game
+// usually takes at it, when that was timed for the model
+function effortLabel(effort, name = effortNames[effort]) {
+    const wait = usualWait(claudeModel(), effort);
+    return wait ? `${name} · ${wait}` : name;
+}
+
+function effortOptions() {
+    return CLAUDE_EFFORTS.map((effort) => ({ label: effortLabel(effort), value: effort }));
+}
+
+// What the Effort select shows while no level is chosen: the level Claude
+// then runs at. It is not saved as a choice, so a later change of the
+// default applies.
+function defaultEffortLabel() {
+    if (claudeEffort.value) return undefined;
+    return effortLabel(DEFAULT_CLAUDE_EFFORT, `${effortNames[DEFAULT_CLAUDE_EFFORT]} (default)`);
 }
 
 async function handleSaveApiKey() {
@@ -175,6 +204,19 @@ watch(model, (visible) => {
                     :loading="loadingModels.anthropic"
                     :display-value="defaultModelLabel('anthropic')"
                     label="Model"
+                    class="q-mt-md"
+                    emit-value
+                    map-options
+                />
+                <q-select
+                    dense
+                    filled
+                    v-model="claudeEffort"
+                    :options="effortOptions()"
+                    :display-value="defaultEffortLabel()"
+                    :disable="!hasEffortLevels(claudeModel())"
+                    :hint="hasEffortLevels(claudeModel()) ? undefined : 'haiku has no effort levels'"
+                    label="Effort"
                     class="q-mt-md"
                     emit-value
                     map-options

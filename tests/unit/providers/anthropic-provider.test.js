@@ -170,10 +170,15 @@ describe('Anthropic Provider', () => {
       return shellExecWithInput.mock.lastCall[0].split(' ')
     }
 
-    // The word after a flag in the last command line the provider ran
-    function flagValue(flag) {
-      const words = commandWords()
-      return words.includes(flag) ? words[words.indexOf(flag) + 1] : undefined
+    // The effort levels the last command line the provider ran gives: with
+    // --effort, and as CLAUDE_CODE_EFFORT_LEVEL in the env of the settings
+    // given with --settings, which decides over --effort
+    function effortsGiven() {
+      const line = shellExecWithInput.mock.lastCall[0]
+      return {
+        flag: line.match(/ --effort (.*?) --settings /)?.[1],
+        env: line.match(/ --settings '\{"env":\{"CLAUDE_CODE_EFFORT_LEVEL":"(.*?)"\}\}' /)?.[1],
+      }
     }
 
     beforeEach(async () => {
@@ -186,20 +191,20 @@ describe('Anthropic Provider', () => {
       await provider.connect()
     })
 
-    it('runs the Claude CLI as a plain completion at effort low, with the system prompt in a file, with a time limit of 15 minutes', async () => {
+    it('runs the Claude CLI as a plain completion at effort low when no level is chosen, with the system prompt in a file, with a time limit of 15 minutes', async () => {
       shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
 
       await generate('A game of pong', { model: 'sonnet', systemMessage: 'You write games.' })
 
       expect(shellExecWithInput).toHaveBeenLastCalledWith(
-        `claude -p --model sonnet --effort low --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
+        `claude -p --model sonnet --effort low --settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"low"}}' --tools "" --system-prompt-file '/tmp/gaimer-system-1.txt' --no-session-persistence --safe-mode --strict-mcp-config --output-format json`,
         'A game of pong',
         15 * 60 * 1000
       )
       expect(tempFiles['gaimer-system']).toBe('You write games.')
     })
 
-    it('runs each kind of call for a game at effort low: a new game, the fix of a game that fails as it starts, a change, and the whole game asked for after a change', async () => {
+    it('runs each kind of call for a game at the effort level chosen, or at low when none is chosen or the level is not one the app offers: a new game, the fix of a game that fails as it starts, a change, and the whole game asked for after a change', async () => {
       const broken = { title: 'Pong', code: 'drawBall()' }
       const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:1:1' }
       // Each kind of call: its prompt, and for a change the parse function
@@ -210,22 +215,35 @@ describe('Anthropic Provider', () => {
         'a change': [getChangePrompt(game, 'Make the ball faster', ['A game of pong']), { parse: parseChangeAnswer }],
         'the whole game after a change': [getChangePrompt(game, 'Make the ball faster', ['A game of pong'], { wholeGame: true })],
       }
+      // Each level chosen, and the level a call runs at: the levels the app
+      // offers, none, and levels it does not offer, such as the Claude CLI's
+      // slower xhigh and max, or text that is no level
+      const levels = [
+        ['low', 'low'],
+        ['medium', 'medium'],
+        ['high', 'high'],
+        [undefined, 'low'],
+        ['', 'low'],
+        ['xhigh', 'low'],
+        ['max', 'low'],
+        ['turbo', 'low'],
+        ["high' --verbose '", 'low'],
+      ]
 
-      // The effort each kind of call runs at
-      const efforts = {}
+      // The levels each kind of call gives the CLI, by the level chosen
+      const given = {}
+      const expected = {}
       for (const [kind, [prompt, options]] of Object.entries(calls)) {
-        shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
-        await generate(prompt, options)
-        expect(shellExecWithInput.mock.lastCall[1], kind).toBe(prompt)
-        efforts[kind] = flagValue('--effort')
+        for (const [effort, level] of levels) {
+          shellExecWithInput.mockResolvedValueOnce(cliOutput(JSON.stringify(game)))
+          await generate(prompt, { ...options, effort })
+          expect(shellExecWithInput.mock.lastCall[1], kind).toBe(prompt)
+          given[`${kind} at ${JSON.stringify(effort)}`] = effortsGiven()
+          expected[`${kind} at ${JSON.stringify(effort)}`] = { flag: level, env: level }
+        }
       }
 
-      expect(efforts).toEqual({
-        'a new game': 'low',
-        'a fix': 'low',
-        'a change': 'low',
-        'the whole game after a change': 'low',
-      })
+      expect(given).toEqual(expected)
     })
 
     it('runs sonnet, the default it names, when no model is chosen', async () => {

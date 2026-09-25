@@ -1,6 +1,7 @@
 import { ref, watch } from "vue";
 import { defineStore } from "pinia";
 import { createCredentialStore } from "../credentials/credential-store.js";
+import { CLAUDE_EFFORTS } from "../providers/claude-effort.js";
 
 const credentials = createCredentialStore();
 
@@ -24,6 +25,9 @@ export const usePersistedStore = defineStore("persisted-store", () => {
     // ("" means the provider's default)
     const selectedProvider = ref(loadStateFromLocalStorage("selectedProvider") || "openai");
     const selectedModels = ref(loadSelectedModels());
+    // The effort level chosen for Claude's calls for a game ("" means the
+    // default)
+    const claudeEffort = ref(loadClaudeEffort());
 
     function saveStateToLocalStorage(key, value) {
         localStorage.setItem(key, JSON.stringify(value));
@@ -54,6 +58,12 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         models.anthropic = claudeAliases.get(models.anthropic) ?? models.anthropic;
         saveStateToLocalStorage("selectedModels", models);
         return models;
+    }
+
+    // A saved level that the app does not offer counts as none chosen
+    function loadClaudeEffort() {
+        const saved = loadStateFromLocalStorage("claudeEffort");
+        return CLAUDE_EFFORTS.includes(saved) ? saved : "";
     }
 
     // Load API key from credential store
@@ -99,12 +109,17 @@ export const usePersistedStore = defineStore("persisted-store", () => {
         saveStateToLocalStorage("selectedModels", newValue);
     }, { deep: true });
 
+    watch(claudeEffort, (newValue) => {
+        saveStateToLocalStorage("claudeEffort", newValue);
+    });
+
     return {
         apiKey,
         apiKeyReady,
         apiKeyError,
         selectedProvider,
         selectedModels,
+        claudeEffort,
         init,
     };
 });

@@ -6,6 +6,7 @@ import { storeToRefs } from "pinia";
 import { createProviderRegistry } from "./providers/registry.js";
 import { createOpenAIProvider } from "./providers/openai-provider.js";
 import { createAnthropicProvider } from "./providers/anthropic-provider.js";
+import { usualWait } from "./providers/claude-effort.js";
 import {
     initStorage,
     saveGame,
@@ -27,7 +28,7 @@ import { applyChanges, parseChangeAnswer } from "./helpers/change-blocks.js";
 const appStore = useAppStore();
 const persistedStore = usePersistedStore();
 const { gameDescription, loadedGame, gameList, generating } = storeToRefs(appStore);
-const { apiKey, selectedProvider, selectedModels } = storeToRefs(persistedStore);
+const { apiKey, selectedProvider, selectedModels, claudeEffort } = storeToRefs(persistedStore);
 
 // Set up provider registry with both providers
 const registry = createProviderRegistry();
@@ -131,6 +132,9 @@ const retry = shallowRef(null);
 const gamesShown = ref(0);
 const elapsedSeconds = ref(0);
 let elapsedTimer = null;
+// How long the new game being generated usually takes, or "" when that is
+// not known
+const newGameWait = ref("");
 
 function startElapsedTimer() {
     elapsedSeconds.value = 0;
@@ -141,13 +145,28 @@ function stopElapsedTimer() {
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
 }
 
-// Ask a provider for a game, and return it. With no model given, the
-// provider uses its default. With a parse function, the provider reads its
-// answer with it, and what it reads is returned in place of a game.
-async function requestGame(provider, prompt, model, parse) {
+// The effort level chosen for a provider's calls for a game: only Claude has
+// levels to choose from
+function effortFor(provider) {
+    return provider.id === "anthropic" ? claudeEffort.value : undefined;
+}
+
+// How long a new game from a provider usually takes with a model and an
+// effort level, or "" when that is not known: it was timed only with Claude
+function waitFor(provider, model, effort) {
+    if (provider.id !== "anthropic") return "";
+    return usualWait(model || provider.defaultModel, effort) ?? "";
+}
+
+// Ask a provider for a game, and return it. With no model or effort level
+// given, the provider uses its default. With a parse function, the provider
+// reads its answer with it, and what it reads is returned in place of a
+// game.
+async function requestGame(provider, prompt, model, effort, parse) {
     const generator = provider.generateGame(prompt, {
         systemMessage: getSystemMessage(),
         model,
+        ...(effort && { effort }),
         maxTokens: 16384,
         temperature: 0.2,
         ...(parse && { parse }),
@@ -214,7 +233,8 @@ async function addGame(prompt, jsonResponse) {
 
 // The game generated or changed last, from when it is shown until it has
 // had its one chance of a fix: its id, the user's prompt for a new game or
-// request for a change, the game, and the provider and model that wrote it
+// request for a change, the game, and the provider, model and effort level
+// that wrote it
 let newGame = null;
 
 // The error shown when no provider is connected
@@ -232,15 +252,17 @@ const generateGame = async (prompt) => {
         return;
     }
 
+    const model = selectedModels.value[provider.id];
+    const effort = effortFor(provider);
+    newGameWait.value = waitFor(provider, model, effort);
     state.value = "generating";
     generating.value = true;
     startElapsedTimer();
 
     try {
-        const model = selectedModels.value[provider.id];
-        const jsonResponse = await requestGame(provider, prompt, model);
+        const jsonResponse = await requestGame(provider, prompt, model, effort);
         const id = await addGame(prompt, jsonResponse);
-        newGame = { id, prompt, jsonResponse, provider, model };
+        newGame = { id, prompt, jsonResponse, provider, model, effort };
         state.value = "done";
     } catch (error) {
         console.error("Failed to generate game:", error);
@@ -272,14 +294,14 @@ function requestsOf(saved) {
 // or its change blocks cannot be made, the model is asked once for the
 // whole game, unless the user has left the game meanwhile: then null is
 // returned.
-async function requestChange(provider, model, id, saved, request) {
+async function requestChange(provider, model, effort, id, saved, request) {
     const read = safeParseGameJSON(saved.content);
     if (!read.ok) throw new Error(read.error);
     const current = read.data;
     const requests = requestsOf(saved);
 
     try {
-        const answer = await requestGame(provider, getChangePrompt(current, request, requests), model, parseChangeAnswer);
+        const answer = await requestGame(provider, getChangePrompt(current, request, requests), model, effort, parseChangeAnswer);
         if (answer.game) return answer.game;
         const changed = applyChanges(current, answer);
         if (changed.ok) return changed.game;
@@ -292,18 +314,18 @@ async function requestChange(provider, model, id, saved, request) {
     }
 
     if (loadedGame.value !== id) return null;
-    return requestGame(provider, getChangePrompt(current, request, requests, { wholeGame: true }), model);
+    return requestGame(provider, getChangePrompt(current, request, requests, { wholeGame: true }), model, effort);
 }
 
-// Change the open game as the user asks, with the provider and model
-// selected now, and show the changed game, saved as the game's new version.
-// The request holds the game as it is saved. While the change runs, the
-// user can open another game, start a new one or delete this one: then the
-// answer is dropped, and nothing is saved. A provider switch does not stop
-// it: the change goes on with the provider it was sent to, as a new game
-// does. With undoFirst, the game first goes back to its version before the
-// last change: Retry does that when a changed game fails as it starts and
-// cannot be fixed.
+// Change the open game as the user asks, with the provider, model and
+// effort level selected now, and show the changed game, saved as the game's
+// new version. The request holds the game as it is saved. While the change
+// runs, the user can open another game, start a new one or delete this one:
+// then the answer is dropped, and nothing is saved. A provider switch does
+// not stop it: the change goes on with the provider it was sent to, as a
+// new game does. With undoFirst, the game first goes back to its version
+// before the last change: Retry does that when a changed game fails as it
+// starts and cannot be fixed.
 async function changeGame(request, { undoFirst = false } = {}) {
     const id = loadedGame.value;
     retry.value = () => changeGame(request, { undoFirst });
@@ -327,12 +349,13 @@ async function changeGame(request, { undoFirst = false } = {}) {
         if (loadedGame.value !== id) return;
         earlierVersions.value = saved.changeRequests.length;
         const model = selectedModels.value[provider.id];
-        const changed = await requestChange(provider, model, id, saved, request);
+        const effort = effortFor(provider);
+        const changed = await requestChange(provider, model, effort, id, saved, request);
         if (loadedGame.value !== id) return;
         const version = await addGameVersion(id, changed, request);
         if (loadedGame.value !== id) return;
         const shown = showSavedGame(id, version);
-        newGame = { id, request, jsonResponse: shown, provider, model };
+        newGame = { id, request, jsonResponse: shown, provider, model, effort };
         state.value = "done";
     } catch (error) {
         if (loadedGame.value !== id) return;
@@ -346,12 +369,12 @@ async function changeGame(request, { undoFirst = false } = {}) {
 }
 
 // A new game or a changed game that fails as it starts goes back once, with
-// the error, to the provider and model that wrote it. The fixed game takes
-// the place of a new game, and of the version of a changed game. A game
-// opened from the list or a fixed game does not, and neither does a game
-// whose provider the user has since switched from or disconnected: the user
-// sees its error, as with any game. If the fix fails, the user sees why, as
-// when generating fails.
+// the error, to the provider, model and effort level that wrote it. The
+// fixed game takes the place of a new game, and of the version of a changed
+// game. A game opened from the list or a fixed game does not, and neither
+// does a game whose provider the user has since switched from or
+// disconnected: the user sees its error, as with any game. If the fix
+// fails, the user sees why, as when generating fails.
 async function fixGame(error) {
     const broken = newGame;
     newGame = null;
@@ -362,7 +385,7 @@ async function fixGame(error) {
     startElapsedTimer();
 
     try {
-        const fixed = await requestGame(broken.provider, getFixPrompt(broken.jsonResponse, error), broken.model);
+        const fixed = await requestGame(broken.provider, getFixPrompt(broken.jsonResponse, error), broken.model, broken.effort);
         if (broken.request === undefined) {
             // The fixed game is saved first, then the broken game is
             // deleted, with any progress saved in it
@@ -585,9 +608,9 @@ watch(gameDescription, (newVal) => {
                             {{ gameStates[state].message }}
                         </template>
 
-                        <!-- Generating with timer -->
+                        <!-- Generating with timer, and how long a game usually takes when that is known -->
                         <template v-if="state === 'generating'">
-                            <div class="text-body1 q-mb-sm">Generating game... ({{ elapsedSeconds }}s)</div>
+                            <div class="text-body1 q-mb-sm">Generating game... ({{ elapsedSeconds }}s)<template v-if="newGameWait"> · usually {{ newGameWait }}</template></div>
                         </template>
 
                         <!-- Changing the open game, with timer -->

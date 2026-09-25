@@ -94,6 +94,8 @@ function fakeProvider(id) {
   let connected = false
   const provider = {
     id,
+    // The model the real provider uses when none is chosen
+    defaultModel: { openai: 'gpt-4o', anthropic: 'sonnet' }[id],
     canConnect: true,
     connect: vi.fn(async () => {
       if (!provider.canConnect) {
@@ -633,6 +635,150 @@ describe('App', () => {
       expect(runningPrompt()).toBe(getChangePrompt(pong, 'Make the ball faster', ['A game of pong'], { wholeGame: true }))
 
       await expectStoppedAfter15Minutes(wrapper)
+    })
+  })
+
+  describe('effort level of a Claude call', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+
+    // The effort level of each request sent to a provider, or "none"
+    function effortsSentTo(provider) {
+      return provider.generateGame.mock.calls.map(([, options]) => ('effort' in options ? options.effort : 'none'))
+    }
+
+    it('is the level chosen for a new game, a change and the whole game asked for after it, and for the fix of a game the level it was made at', async () => {
+      const pong = { title: 'Pong', code: 'drawBall()' }
+      const fixed = { title: 'Pong', code: 'draw()' }
+      const startError = { message: "Can't find variable: drawBall", stack: 'global code@game.js:1:1' }
+      answerWith(providers.anthropic, pong)
+      answerWith(providers.anthropic, fixed)
+      answerWith(providers.anthropic, 'Here are the changes: the ball is faster')
+      answerWith(providers.anthropic, { title: 'Pong', code: 'drawFast()' })
+      const wrapper = await startAppWithGames()
+      const store = usePersistedStore()
+      store.claudeEffort = 'high'
+      await generate()
+
+      // The user picks another level before the game fails as it starts
+      store.claudeEffort = 'medium'
+      await sendFromGame(wrapper, { type: 'error', data: startError })
+      await send('Make the ball faster')
+
+      expect(providers.anthropic.generateGame.mock.calls.map(([prompt]) => prompt)).toEqual([
+        'A game of pong',
+        getFixPrompt(pong, startError),
+        getChangePrompt(fixed, 'Make the ball faster', ['A game of pong']),
+        getChangePrompt(fixed, 'Make the ball faster', ['A game of pong'], { wholeGame: true }),
+      ])
+      expect(effortsSentTo(providers.anthropic)).toEqual(['high', 'high', 'medium', 'medium'])
+      expect(gameOnScreen(wrapper)).toContain('drawFast()')
+    })
+
+    it('is not sent while none is chosen, so that Claude runs at its default, and is not sent to OpenAI, which has no levels', async () => {
+      credentials.set('openai:apiKey', 'sk-test')
+      const wrapper = await startApp()
+      await generate()
+      expect(effortsSentTo(providers.anthropic)).toEqual(['none'])
+
+      usePersistedStore().claudeEffort = 'high'
+      await switchProvider(wrapper, 'openai')
+      await pressNewGame(wrapper)
+      await generate()
+      expect(effortsSentTo(providers.openai)).toEqual(['none'])
+    })
+
+    it('is the level the Claude CLI runs at, low while none is chosen', async () => {
+      // The real Claude provider, which runs the Claude CLI through the shell
+      // plugin
+      const { createAnthropicProvider } = await vi.importActual('../../src/providers/anthropic-provider.js')
+      providers.anthropic = createAnthropicProvider()
+      const wrapper = await startApp()
+
+      for (const level of ['', 'medium', 'high', 'low']) {
+        usePersistedStore().claudeEffort = level
+        await generate()
+        await pressNewGame(wrapper)
+      }
+
+      // The levels of each call: with --effort, and in the env of the
+      // settings given with --settings
+      const levels = shell.ran
+        .map(({ args }) => args[2])
+        .filter((line) => line.startsWith('exec claude -p '))
+        .map((line) => line.match(/ --effort (\S+) --settings '\{"env":\{"CLAUDE_CODE_EFFORT_LEVEL":"([^"]*)"\}\}' /).slice(1))
+      expect(levels).toEqual([['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['low', 'low']])
+    })
+  })
+
+  describe('the line shown while a game is made', () => {
+    beforeEach(() => {
+      localStorage.setItem('selectedProvider', JSON.stringify('anthropic'))
+      vi.useFakeTimers()
+    })
+
+    // The line with the seconds so far
+    function statusLine(wrapper) {
+      return wrapper.find('.status-container .text-body1').text()
+    }
+
+    // The line 12 seconds into making a new game with the provider, the
+    // model and the effort level chosen
+    async function lineWhileGenerating({ provider = providers.anthropic, model = '', effort = '' } = {}) {
+      answerLater(provider, { title: 'Pong', code: 'draw()' })
+      const wrapper = await startApp()
+      usePersistedStore().selectedModels[provider.id] = model
+      usePersistedStore().claudeEffort = effort
+      await generate()
+      await vi.advanceTimersByTimeAsync(12000)
+      return statusLine(wrapper)
+    }
+
+    it.each([
+      ['none', '', 'Generating game... (12s) · usually about a minute'],
+      ['low', 'low', 'Generating game... (12s) · usually about a minute'],
+      ['medium', 'medium', 'Generating game... (12s) · usually 1–5 minutes'],
+      ['high', 'high', 'Generating game... (12s) · usually 3–8 minutes'],
+    ])('says how long a new game usually takes with Claude\'s default model at the level chosen: %s', async (_, effort, line) => {
+      expect(await lineWhileGenerating({ effort })).toBe(line)
+    })
+
+    it.each([
+      ['sonnet', 'Generating game... (12s) · usually 3–8 minutes'],
+      ['opus', 'Generating game... (12s)'],
+      ['haiku', 'Generating game... (12s)'],
+    ])('says it with sonnet chosen, and no wait with opus or haiku, whose games were not timed (%s)', async (model, line) => {
+      expect(await lineWhileGenerating({ model, effort: 'high' })).toBe(line)
+    })
+
+    it('says no wait with OpenAI', async () => {
+      localStorage.setItem('selectedProvider', JSON.stringify('openai'))
+      credentials.set('openai:apiKey', 'sk-test')
+
+      expect(await lineWhileGenerating({ provider: providers.openai, effort: 'high' })).toBe('Generating game... (12s)')
+    })
+
+    it('says no wait while a game is fixed or changed', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      answerWith(providers.anthropic, { title: 'Pong', code: 'drawBall()' })
+      const finishFixing = answerLater(providers.anthropic, { title: 'Pong', code: 'draw()' })
+      answerLater(providers.anthropic, { changes: [{ find: 'draw()', replace: 'drawFast()' }] })
+      const wrapper = await startAppWithGames()
+      usePersistedStore().claudeEffort = 'high'
+      await generate()
+
+      await sendFromGame(wrapper, { type: 'error', data: { message: "Can't find variable: drawBall" } })
+      await vi.advanceTimersByTimeAsync(12000)
+      expect(statusLine(wrapper)).toBe('Fixing an error in the game... (12s)')
+
+      finishFixing()
+      await flushPromises()
+      await send('Make the ball faster')
+      await vi.advanceTimersByTimeAsync(12000)
+      expect(statusLine(wrapper)).toBe('Changing the game... (12s)')
     })
   })
 
