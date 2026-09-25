@@ -9,7 +9,7 @@
  * @param {Object} [options] - Configuration options
  * @param {number} [options.width] - Canvas/iframe width
  * @param {number} [options.height] - Canvas/iframe height
- * @returns {Object} Sandbox controller with loadGame, postMessage, onMessage, scaleToFit, destroy
+ * @returns {Object} Sandbox controller with loadGame, postMessage, onMessage, focus, scaleToFit, destroy
  */
 export function createSandbox(container, options = {}) {
   const { width, height } = options
@@ -225,6 +225,15 @@ window.addEventListener('unhandledrejection', function(event) {
 
     onMessage(handler) {
       messageHandlers.push(handler)
+    },
+
+    /**
+     * Give the game the keyboard focus, so that key presses reach it. A
+     * click on the game gives it the focus too, but not when the game's own
+     * pointerdown handler calls preventDefault(), which cancels that.
+     */
+    focus() {
+      if (iframe) iframe.focus({ preventScroll: true })
     },
 
     /**

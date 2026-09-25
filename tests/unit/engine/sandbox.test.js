@@ -199,6 +199,21 @@ describe('createSandbox', () => {
     sandbox = null
   })
 
+  it('focus() gives the game the keyboard focus without scrolling the page, and does nothing after destroy()', () => {
+    sandbox = createSandbox(container)
+    sandbox.loadGame('// game')
+    const iframe = container.querySelector('iframe')
+    const focus = vi.spyOn(iframe, 'focus')
+
+    sandbox.focus()
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true })
+    expect(document.activeElement).toBe(iframe)
+
+    sandbox.destroy()
+    expect(() => sandbox.focus()).not.toThrow()
+    sandbox = null
+  })
+
   it('destroy() removes the iframe', () => {
     sandbox = createSandbox(container)
     expect(container.querySelector('iframe')).toBeTruthy()

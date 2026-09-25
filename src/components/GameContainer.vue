@@ -154,6 +154,7 @@ function loadGameScript() {
             if (!ready) {
                 ready = true;
                 countStartSeconds();
+                focusReadyGame();
             }
             // Probe for save/restore support, then offer restore if available
             probeSaveSupport().then(() => checkAndOfferRestore());
@@ -165,6 +166,33 @@ function loadGameScript() {
 
     // Load the game code into the sandbox
     sandbox.loadGame(game.code);
+}
+
+// The game takes the keyboard focus when it is ready, so that key presses
+// reach it before the player clicks it. A click gives the game the focus,
+// but not when the game's own pointerdown handler calls preventDefault(), as
+// some games do. The focus stays in a text field, such as the description
+// box while the user types there, and in a dialog.
+function focusReadyGame() {
+    if (document.activeElement?.closest("input, textarea, [role='dialog']")) return;
+    sandbox.focus();
+}
+
+// What keeps the focus when the app's window gets it: a field, a button, a
+// link, an element the user can reach with Tab, or anything in a dialog
+const CONTROL = "input, textarea, select, button, a[href], [tabindex]:not([tabindex='-1']), [role='dialog']";
+
+// When the app's window gets the focus back, the game takes it again, unless
+// a control has it. The window gets a focus event too when the focus moves
+// from the game to the page: when the user clicks the description box or a
+// button, or leaves the game with Tab. So the game waits until the focus
+// has moved, and leaves it on the control it went to. A click beside the
+// game puts the focus on the page's layout, which is no control, and the
+// game takes it back. A game that is not ready yet takes it when it is.
+function handleWindowFocus() {
+    setTimeout(() => {
+        if (sandbox && ready && !document.activeElement?.closest(CONTROL)) sandbox.focus();
+    });
 }
 
 // Handle visibility changes for pause/resume
@@ -206,6 +234,7 @@ const displayNotification = (message) => {
 onMounted(() => {
     loadGameScript();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
     resizeObserver = new ResizeObserver(fitGameToContainer);
     resizeObserver.observe(containerRef.value);
 });
@@ -213,6 +242,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
     stopStartClock();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("focus", handleWindowFocus);
     resizeObserver.disconnect();
     if (sandbox) {
         sandbox.destroy();

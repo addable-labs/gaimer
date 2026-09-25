@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from 'vitest'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { Quasar } from 'quasar'
 import GameContainer from '../../../src/components/GameContainer.vue'
+import UserInput from '../../../src/components/UserInput.vue'
 import { quasarPlugins } from '../../../src/quasar-plugins.js'
 import { loadGameState, saveGameState } from '../../../src/helpers/game-storage.js'
 import { useAppStore } from '../../../src/stores/app-store.js'
@@ -429,6 +430,173 @@ describe('GameContainer', () => {
 
         expect(startErrors(wrapper)).toEqual([{ message: 'The start screen fails', stack: '' }])
       })
+    })
+  })
+
+  // Key presses reach the game only while it has the keyboard focus. A click
+  // on the game gives it the focus, but not when the game's own pointerdown
+  // handler calls preventDefault(), as some games do.
+  describe('keyboard focus', () => {
+    // The description box, in the page with the game, as in the app
+    function showDescriptionBox() {
+      const wrapper = mount(UserInput, {
+        attachTo: document.body,
+        global: { plugins: [[Quasar, { plugins: quasarPlugins }]] },
+      })
+      return wrapper.find('textarea').element
+    }
+
+    // The app's window gets a focus event, then the focus settles. The window
+    // gets one when it gets the focus back, and when the focus moves from the
+    // game to the page.
+    async function windowFocusEvent() {
+      window.dispatchEvent(new FocusEvent('focus'))
+      await vi.advanceTimersByTimeAsync(0)
+    }
+
+    it('goes to the game when it is ready', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const iframe = wrapper.find('iframe').element
+      expect(document.activeElement).toBe(document.body)
+
+      sendFromGame(iframe.contentWindow, { type: 'ready', data: {} })
+
+      expect(document.activeElement).toBe(iframe)
+    })
+
+    it('stays in the description box while the user types there', async () => {
+      const box = showDescriptionBox()
+      box.focus()
+      const wrapper = await showGame({ width: 800, height: 600 })
+
+      sendFromGame(wrapper.find('iframe').element.contentWindow, { type: 'ready', data: {} })
+      expect(document.activeElement).toBe(box)
+
+      await windowFocusEvent()
+      expect(document.activeElement).toBe(box)
+    })
+
+    it('stays in a dialog', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      // A dialog with no button to focus first, like Settings: the dialog
+      // itself has the focus
+      const dialog = wrapper.vm.$q.dialog({ title: 'Delete this game?', cancel: true, focus: 'none' })
+      await vi.advanceTimersByTimeAsync(1000)
+      const focused = document.activeElement
+      expect(document.querySelector('.q-dialog').contains(focused)).toBe(true)
+      expect(focused.tagName).toBe('DIV')
+
+      sendFromGame(wrapper.find('iframe').element.contentWindow, { type: 'ready', data: {} })
+      expect(document.activeElement).toBe(focused)
+
+      await windowFocusEvent()
+      expect(document.activeElement).toBe(focused)
+
+      dialog.hide()
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+
+    it("goes to the game again when the app's window gets it back, unless a control has it", async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const iframe = wrapper.find('iframe').element
+      sendFromGame(iframe.contentWindow, { type: 'ready', data: {} })
+
+      // No element has the focus
+      iframe.blur()
+      expect(document.activeElement).toBe(document.body)
+      await windowFocusEvent()
+      expect(document.activeElement).toBe(iframe)
+
+      // The page's layout has it, as after a click beside the game: Quasar's
+      // layout can take the focus, but not with Tab
+      const layout = document.body.appendChild(document.createElement('div'))
+      onTestFinished(() => layout.remove())
+      layout.tabIndex = -1
+      layout.focus()
+      await windowFocusEvent()
+      expect(document.activeElement).toBe(iframe)
+    })
+
+    it('stays where the user moves it from the game: the description box, or a button reached with Tab', async () => {
+      const box = showDescriptionBox()
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const iframe = wrapper.find('iframe').element
+      sendFromGame(iframe.contentWindow, { type: 'ready', data: {} })
+      const focusGame = vi.spyOn(iframe, 'focus')
+
+      // As the focus leaves the game, the window gets a focus event, and the
+      // box gets the focus after it, as in WebKit and Chromium. The game
+      // makes no move to take the focus back, even during the event.
+      window.dispatchEvent(new FocusEvent('focus'))
+      box.focus()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(document.activeElement).toBe(box)
+      expect(focusGame).not.toHaveBeenCalled()
+
+      iframe.focus()
+      focusGame.mockClear()
+      window.dispatchEvent(new FocusEvent('focus'))
+      const controlsButton = wrapper.find('button').element
+      controlsButton.focus()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(document.activeElement).toBe(controlsButton)
+      expect(focusGame).not.toHaveBeenCalled()
+    })
+
+    it('does not go to a game that is not ready', async () => {
+      await showGame({ width: 800, height: 600 })
+
+      await windowFocusEvent()
+
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    it('goes to the game once only, when it is first ready', async () => {
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const game = wrapper.find('iframe').element.contentWindow
+      sendFromGame(game, { type: 'ready', data: {} })
+      const controlsButton = wrapper.find('button').element
+      controlsButton.focus()
+
+      // The game's code says it is ready too
+      sendFromGame(game, { type: 'ready', data: {} })
+
+      expect(document.activeElement).toBe(controlsButton)
+    })
+
+    it('goes back to the game when the player answers the restore dialog', async () => {
+      useAppStore().loadedGame = '1790000000000'
+      vi.mocked(loadGameState).mockResolvedValueOnce({ level: 3, score: 1200 })
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const iframe = wrapper.find('iframe').element
+      const { game } = playGame(wrapper, { level: 1, score: 0 })
+      sendFromGame(game, { type: 'ready', data: {} })
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // The dialog takes the focus, and keeps it when the app's window gets
+      // it back
+      const dialog = document.querySelector('.q-dialog')
+      expect(dialog.contains(document.activeElement)).toBe(true)
+      await windowFocusEvent()
+      expect(dialog.contains(document.activeElement)).toBe(true)
+
+      const buttons = [...dialog.querySelectorAll('button')]
+      buttons.find((button) => button.textContent.trim() === 'Restore').click()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(document.activeElement).toBe(iframe)
+    })
+
+    it("stops listening for the window's focus when the game is closed", async () => {
+      const removeListener = vi.spyOn(window, 'removeEventListener')
+      const addListener = vi.spyOn(window, 'addEventListener')
+      const wrapper = await showGame({ width: 800, height: 600 })
+      const listeners = addListener.mock.calls.filter(([type]) => type === 'focus').map(([, listener]) => listener)
+      expect(listeners).toHaveLength(1)
+
+      wrapper.unmount()
+
+      expect(removeListener).toHaveBeenCalledWith('focus', listeners[0])
     })
   })
 })
