@@ -53,6 +53,45 @@ describe('createSandbox', () => {
     expect(iframe.height).toBe('600')
   })
 
+  it('makes the iframe the size of the default canvas when given no size', () => {
+    sandbox = createSandbox(container)
+    const iframe = container.querySelector('iframe')
+    expect(iframe.width).toBe('800')
+    expect(iframe.height).toBe('600')
+  })
+
+  it('scaleToFit() scales the game to fit a box, centred, without reloading it', () => {
+    sandbox = createSandbox(container, { width: 800, height: 600 })
+    sandbox.loadGame('// game')
+    const iframe = container.querySelector('iframe')
+    const page = iframe.srcdoc
+
+    // Narrower: half size, centred vertically
+    sandbox.scaleToFit(400, 600)
+    expect(iframe.style.transform).toBe('translate(0px, 150px) scale(0.5)')
+    // Shorter: half size, centred horizontally
+    sandbox.scaleToFit(1000, 300)
+    expect(iframe.style.transform).toBe('translate(300px, 0px) scale(0.5)')
+    // Larger: scaled up
+    sandbox.scaleToFit(1600, 1500)
+    expect(iframe.style.transform).toBe('translate(0px, 150px) scale(2)')
+    // Wider by an odd number of pixels: its own size, at a whole pixel
+    sandbox.scaleToFit(801, 600)
+    expect(iframe.style.transform).toBe('translate(1px, 0px) scale(1)')
+
+    // The iframe, the page and its canvas keep their size
+    expect(iframe.width).toBe('800')
+    expect(iframe.height).toBe('600')
+    expect(iframe.srcdoc).toBe(page)
+  })
+
+  it('scaleToFit() does nothing after destroy()', () => {
+    sandbox = createSandbox(container, { width: 800, height: 600 })
+    sandbox.destroy()
+    expect(() => sandbox.scaleToFit(400, 300)).not.toThrow()
+    sandbox = null
+  })
+
   it('destroy() removes the iframe', () => {
     sandbox = createSandbox(container)
     expect(container.querySelector('iframe')).toBeTruthy()

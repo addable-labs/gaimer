@@ -55,6 +55,12 @@ async function onSave() {
     }
 }
 
+// The container's size in whole pixels
+function containerSize() {
+    const rect = containerRef.value.getBoundingClientRect();
+    return { width: Math.floor(rect.width), height: Math.floor(rect.height) };
+}
+
 function loadGameScript() {
     const container = containerRef.value;
     if (!container || !game.code) return;
@@ -67,13 +73,8 @@ function loadGameScript() {
         sandbox = null;
     }
 
-    // Calculate size from the container's actual dimensions
-    const rect = container.getBoundingClientRect();
-    const width = Math.floor(rect.width);
-    const height = Math.floor(rect.height);
-
-    // Create a new sandboxed iframe for the game
-    sandbox = createSandbox(container, { width, height });
+    // Create a new sandboxed iframe for the game, the size of the container
+    sandbox = createSandbox(container, containerSize());
 
     // Listen for messages from the sandbox
     sandbox.onMessage((msg) => {
@@ -105,17 +106,18 @@ function handleVisibilityChange() {
     }
 }
 
-// Handle resize for responsive canvas
-function handleResize() {
+// When the container changes size (the window is resized, the device
+// rotates), scale the game to fit it. Loading the game again at the new size
+// would restart it and lose the player's progress.
+function fitGameToContainer() {
     if (!sandbox || !containerRef.value) return;
-    loadGameScript();
+    const { width, height } = containerSize();
+    sandbox.scaleToFit(width, height);
 }
 
-let resizeTimeout = null;
-function debouncedResize() {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(handleResize, 300);
-}
+// Watches the container rather than the window: Quasar sets the page's
+// height a moment after the window resizes
+let resizeObserver = null;
 
 // Game info to display below the game canvas
 const gameInfo = ref([
@@ -138,13 +140,13 @@ watchEffect(async () => {
 
 onMounted(() => {
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("resize", debouncedResize);
+    resizeObserver = new ResizeObserver(fitGameToContainer);
+    resizeObserver.observe(containerRef.value);
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
-    window.removeEventListener("resize", debouncedResize);
-    clearTimeout(resizeTimeout);
+    resizeObserver.disconnect();
     if (sandbox) {
         sandbox.destroy();
         sandbox = null;
@@ -198,19 +200,15 @@ onBeforeUnmount(() => {
     flex: 1;
     min-height: 0;
 }
+/* The game's iframe is positioned absolutely within it, so the iframe's
+   size never changes the wrapper's */
 .game-canvas-wrapper {
+    position: relative;
     flex: 1;
     width: 100%;
     min-height: 0;
     overflow: hidden;
     background: #1a1a1a;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-.game-canvas-wrapper :deep(iframe) {
-    max-width: 100%;
-    max-height: 100%;
 }
 
 .game-info-bar {

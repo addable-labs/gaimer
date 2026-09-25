@@ -3,14 +3,18 @@
  * Game code runs in an isolated context with no access to the parent DOM,
  * localStorage, or network. Communication happens via postMessage only.
  *
- * @param {HTMLElement} container - DOM element to mount the iframe into
+ * @param {HTMLElement} container - DOM element to mount the iframe into. The
+ *   iframe is positioned absolutely at its top left, so the container must
+ *   be positioned (e.g. position: relative).
  * @param {Object} [options] - Configuration options
  * @param {number} [options.width] - Canvas/iframe width
  * @param {number} [options.height] - Canvas/iframe height
- * @returns {Object} Sandbox controller with loadGame, postMessage, onMessage, destroy
+ * @returns {Object} Sandbox controller with loadGame, postMessage, onMessage, scaleToFit, destroy
  */
 export function createSandbox(container, options = {}) {
   const { width, height } = options
+  const canvasWidth = width || 800
+  const canvasHeight = height || 600
   const messageHandlers = []
   let iframe = document.createElement('iframe')
 
@@ -18,9 +22,14 @@ export function createSandbox(container, options = {}) {
   iframe.setAttribute('sandbox', 'allow-scripts')
   iframe.style.border = 'none'
   iframe.style.display = 'block'
+  // scaleToFit() moves and scales the iframe from here
+  iframe.style.position = 'absolute'
+  iframe.style.left = '0'
+  iframe.style.top = '0'
+  iframe.style.transformOrigin = '0 0'
 
-  if (width) iframe.width = String(width)
-  if (height) iframe.height = String(height)
+  iframe.width = String(canvasWidth)
+  iframe.height = String(canvasHeight)
 
   container.appendChild(iframe)
 
@@ -35,9 +44,6 @@ export function createSandbox(container, options = {}) {
   window.addEventListener('message', handleMessage)
 
   function buildSrcdoc(gameCode) {
-    const canvasWidth = width || 800
-    const canvasHeight = height || 600
-
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -164,6 +170,21 @@ window.addEventListener('unhandledrejection', function(event) {
       if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage({ type: 'restoreState', data: stateData }, '*')
       }
+    },
+
+    /**
+     * Scale the game to fit a box of the given size at the container's top
+     * left, centred in it and keeping its aspect ratio. Only the iframe's
+     * CSS transform changes: the game keeps running, its canvas keeps its
+     * size, and input still reaches it at canvas coordinates.
+     */
+    scaleToFit(boxWidth, boxHeight) {
+      if (!iframe) return
+      const scale = Math.min(boxWidth / canvasWidth, boxHeight / canvasHeight)
+      // Whole pixels, so that a game at its own size is not blurred
+      const x = Math.round((boxWidth - canvasWidth * scale) / 2)
+      const y = Math.round((boxHeight - canvasHeight * scale) / 2)
+      iframe.style.transform = `translate(${x}px, ${y}px) scale(${scale})`
     },
 
     destroy() {
