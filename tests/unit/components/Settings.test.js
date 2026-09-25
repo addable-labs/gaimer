@@ -7,11 +7,13 @@ import { usePersistedStore } from '../../../src/stores/persisted-store.js'
 
 const registry = { get: () => ({ listModels: async () => [] }) }
 
-async function openSettings() {
+// Opens Settings the way App does: it is mounted closed, then shown
+async function openSettings(providers = registry) {
   const wrapper = mount(Settings, {
-    props: { registry, modelValue: true },
+    props: { registry: providers, modelValue: false },
     global: { plugins: [Quasar], stubs: { ConnectClaude: true } },
   })
+  await wrapper.setProps({ modelValue: true })
   await flushPromises()
   return wrapper
 }
@@ -57,5 +59,26 @@ describe('Settings', () => {
 
     await pickProvider(wrapper, 'openai')
     expect(modelSelect(wrapper).props('modelValue')).toBe('gpt-4o')
+  })
+
+  it('offers each provider only its own models when a list arrives after the user switched', async () => {
+    // OpenAI's list is still on its way when the user picks Claude
+    let sendOpenAIModels
+    const providers = {
+      get: (id) => ({
+        listModels: id === 'openai'
+          ? () => new Promise((resolve) => { sendOpenAIModels = () => resolve(['gpt-4o']) })
+          : async () => ['sonnet', 'opus'],
+      }),
+    }
+    const wrapper = await openSettings(providers)
+    await pickProvider(wrapper, 'anthropic')
+    sendOpenAIModels()
+    await flushPromises()
+
+    expect(modelSelect(wrapper).props('options')).toEqual(['sonnet', 'opus'])
+
+    await pickProvider(wrapper, 'openai')
+    expect(modelSelect(wrapper).props('options')).toEqual(['gpt-4o'])
   })
 })

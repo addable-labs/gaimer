@@ -13,8 +13,10 @@ const { apiKey, apiKeyError, selectedProvider, selectedModels } = storeToRefs(pe
 
 const userInput = ref(apiKey.value);
 const providerChoice = ref(selectedProvider.value || "openai");
-const availableModels = ref([]);
-const loadingModels = ref(false);
+// The models each provider offers, kept apart: a provider's list can
+// arrive after the user has picked the other provider
+const availableModels = ref({ openai: [], anthropic: [] });
+const loadingModels = ref({ openai: false, anthropic: false });
 
 const emit = defineEmits(["providerChanged", "providerDisconnected"]);
 
@@ -28,16 +30,16 @@ watch(
 async function fetchModels(providerId) {
     const provider = props.registry.get(providerId);
     if (!provider || !provider.listModels) {
-        availableModels.value = [];
+        availableModels.value[providerId] = [];
         return;
     }
-    loadingModels.value = true;
+    loadingModels.value[providerId] = true;
     try {
-        availableModels.value = await provider.listModels();
+        availableModels.value[providerId] = await provider.listModels();
     } catch {
-        availableModels.value = [];
+        availableModels.value[providerId] = [];
     }
-    loadingModels.value = false;
+    loadingModels.value[providerId] = false;
 }
 
 async function handleSaveApiKey() {
@@ -62,7 +64,7 @@ function onClaudeConnected() {
 
 function onClaudeDisconnected() {
     emit("providerDisconnected", "anthropic");
-    availableModels.value = [];
+    availableModels.value.anthropic = [];
 }
 
 const model = defineModel({ default: false });
@@ -139,8 +141,8 @@ watch(model, (visible) => {
                     dense
                     filled
                     v-model="selectedModels.openai"
-                    :options="availableModels"
-                    :loading="loadingModels"
+                    :options="availableModels.openai"
+                    :loading="loadingModels.openai"
                     label="Model"
                     class="q-mt-md"
                     emit-value
@@ -158,8 +160,8 @@ watch(model, (visible) => {
                     dense
                     filled
                     v-model="selectedModels.anthropic"
-                    :options="availableModels"
-                    :loading="loadingModels"
+                    :options="availableModels.anthropic"
+                    :loading="loadingModels.anthropic"
                     label="Model"
                     class="q-mt-md"
                     emit-value
