@@ -4,13 +4,12 @@
  * All providers implement the AIProvider interface:
  *   id: string
  *   name: string
- *   authMethod: 'oauth' | 'apikey' | 'local'
+ *   authMethod: 'apikey' | 'subscription'
  *   connect(): Promise<AuthResult>
  *   disconnect(): Promise<void>
  *   isConnected(): boolean
+ *   listModels(): Promise<string[]>
  *   generateGame(prompt, options): AsyncGenerator<StreamChunk>
- *   generateSprite(description, style): Promise<SpriteResult>
- *   capabilities: { streaming, imageGeneration, maxOutputTokens, sandboxedExecution }
  */
 export function createProviderRegistry() {
   const providers = new Map()

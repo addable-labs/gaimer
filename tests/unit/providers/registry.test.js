@@ -11,13 +11,6 @@ function createMockProvider(id, overrides = {}) {
     disconnect: overrides.disconnect || (async () => {}),
     isConnected: overrides.isConnected || (() => false),
     generateGame: overrides.generateGame || (async function* () {}),
-    generateSprite: overrides.generateSprite || (async () => null),
-    capabilities: overrides.capabilities || {
-      streaming: true,
-      imageGeneration: false,
-      maxOutputTokens: 4096,
-      sandboxedExecution: false,
-    },
   }
 }
 
@@ -137,15 +130,5 @@ describe('AIProvider interface', () => {
     expect(provider).toHaveProperty('disconnect')
     expect(provider).toHaveProperty('isConnected')
     expect(provider).toHaveProperty('generateGame')
-    expect(provider).toHaveProperty('generateSprite')
-    expect(provider).toHaveProperty('capabilities')
-  })
-
-  it('capabilities has required flags', () => {
-    const provider = createMockProvider('test')
-    expect(provider.capabilities).toHaveProperty('streaming')
-    expect(provider.capabilities).toHaveProperty('imageGeneration')
-    expect(provider.capabilities).toHaveProperty('maxOutputTokens')
-    expect(provider.capabilities).toHaveProperty('sandboxedExecution')
   })
 })

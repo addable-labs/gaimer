@@ -93,13 +93,6 @@ describe('OpenAI Provider', () => {
     })
   })
 
-  it('has correct capabilities', () => {
-    expect(provider.capabilities.streaming).toBe(true)
-    expect(provider.capabilities.imageGeneration).toBe(true)
-    expect(provider.capabilities.maxOutputTokens).toBeGreaterThanOrEqual(4096)
-    expect(provider.capabilities.sandboxedExecution).toBe(false)
-  })
-
   it('generateGame is an async generator function', () => {
     expect(provider.generateGame).toBeDefined()
     expect(typeof provider.generateGame).toBe('function')

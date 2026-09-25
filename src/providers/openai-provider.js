@@ -14,13 +14,6 @@ export function createOpenAIProvider() {
         name: "OpenAI",
         authMethod: "apikey",
 
-        capabilities: {
-            streaming: true,
-            imageGeneration: true,
-            maxOutputTokens: 16384,
-            sandboxedExecution: false,
-        },
-
         async connect(credentials = {}) {
             if (!credentials.apiKey) {
                 return { success: false, error: "API key is required" };
@@ -76,24 +69,6 @@ export function createOpenAIProvider() {
                 throw new Error(`Failed to parse game response: ${result.error}`);
             }
             yield { type: "complete", data: result.data };
-        },
-
-        async generateSprite(description, style = {}) {
-            if (!client) throw new Error("Provider not connected");
-
-            const response = await client.images.generate({
-                model: "dall-e-3",
-                prompt: description,
-                n: 1,
-                size: style.size || "256x256",
-                quality: style.quality || "standard",
-                response_format: "b64_json",
-            });
-
-            return {
-                data: response.data[0].b64_json,
-                format: "png",
-            };
         },
     };
 }

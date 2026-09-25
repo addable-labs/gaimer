@@ -52,13 +52,6 @@ export function createAnthropicProvider() {
         name: "Anthropic Claude",
         authMethod: "subscription",
 
-        capabilities: {
-            streaming: false,
-            imageGeneration: false,
-            maxOutputTokens: 16384,
-            sandboxedExecution: false,
-        },
-
         async connect() {
             const call = ++calls;
             let signedIn = false;
@@ -141,12 +134,6 @@ export function createAnthropicProvider() {
                 throw new Error(`Failed to parse game response: ${result.error}`);
             }
             yield { type: "complete", data: result.data };
-        },
-
-        async generateSprite() {
-            throw new Error(
-                "Sprite generation is not supported by the Anthropic provider"
-            );
         },
     };
 }

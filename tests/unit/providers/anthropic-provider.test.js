@@ -126,12 +126,6 @@ describe('Anthropic Provider', () => {
     })
   })
 
-  it('has correct capabilities', () => {
-    expect(provider.capabilities.streaming).toBe(false)
-    expect(provider.capabilities.imageGeneration).toBe(false)
-    expect(provider.capabilities.maxOutputTokens).toBeGreaterThanOrEqual(4096)
-  })
-
   it('generateGame is a function', () => {
     expect(provider.generateGame).toBeDefined()
     expect(typeof provider.generateGame).toBe('function')
@@ -271,9 +265,5 @@ describe('Anthropic Provider', () => {
 
       await expect(generate()).rejects.toThrow('Failed to parse game response')
     })
-  })
-
-  it('generateSprite throws not supported', async () => {
-    await expect(provider.generateSprite()).rejects.toThrow('not supported')
   })
 })

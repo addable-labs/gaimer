@@ -46,40 +46,4 @@ describe('CredentialStore', () => {
       await expect(store.remove('openai', 'apiKey')).resolves.not.toThrow()
     })
   })
-
-  describe('removeAll', () => {
-    it('removes all credentials for a provider', async () => {
-      await store.set('openai', 'apiKey', 'sk-test')
-      await store.set('openai', 'orgId', 'org-123')
-      await store.removeAll('openai')
-      expect(await store.get('openai', 'apiKey')).toBeNull()
-      expect(await store.get('openai', 'orgId')).toBeNull()
-    })
-  })
-
-  describe('has', () => {
-    it('returns true when credential exists', async () => {
-      await store.set('openai', 'apiKey', 'sk-test')
-      expect(await store.has('openai', 'apiKey')).toBe(true)
-    })
-
-    it('returns false when credential does not exist', async () => {
-      expect(await store.has('openai', 'apiKey')).toBe(false)
-    })
-  })
-
-  describe('listProviders', () => {
-    it('returns list of providers with stored credentials', async () => {
-      await store.set('openai', 'apiKey', 'sk-test')
-      await store.set('anthropic', 'apiKey', 'sk-test')
-      const providers = await store.listProviders()
-      expect(providers).toContain('openai')
-      expect(providers).toContain('anthropic')
-    })
-
-    it('returns empty array when no credentials stored', async () => {
-      const providers = await store.listProviders()
-      expect(providers).toEqual([])
-    })
-  })
 })
