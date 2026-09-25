@@ -304,11 +304,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* The game's backdrop, behind the game and the buttons below it, and beside
+   them where the app keeps them clear of an iPhone's sides */
 .game-container-root {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    background: #1a1a1a;
 }
 /* The game's iframe is positioned absolutely within it, so the iframe's
    size never changes the wrapper's */
@@ -318,13 +321,11 @@ onBeforeUnmount(() => {
     width: 100%;
     min-height: 0;
     overflow: hidden;
-    background: #1a1a1a;
 }
 
 .game-info-bar {
     display: flex;
     gap: 4px;
     padding: 4px 8px;
-    background: #1a1a1a;
 }
 </style>

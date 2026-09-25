@@ -36,6 +36,7 @@ const remainingCharactersText = computed(() => {
 
 <template>
     <q-toolbar>
+        <!-- 90% of the toolbar's width, which the footer keeps clear of an iPhone's sides -->
         <q-input
             autogrow
             class="absolute-center"
@@ -43,7 +44,7 @@ const remainingCharactersText = computed(() => {
             dense
             filled
             ref="fieldRef"
-            style="width: min(90vw, 800px)"
+            style="width: min(90%, 800px)"
             type="textarea"
             v-model="userInput"
             :disable="generating"

@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { Quasar, QBtn, QBtnToggle, QDrawer, QItem, QSpinnerGears } from 'quasar'
+import { Quasar, QBtn, QBtnToggle, QDrawer, QInput, QItem, QSpinnerGears } from 'quasar'
 import App from '../../src/App.vue'
 import Settings from '../../src/components/Settings.vue'
 import ConnectClaude from '../../src/components/ConnectClaude.vue'
@@ -1907,7 +1907,7 @@ describe('App', () => {
   // under them (viewport-fit=cover), and keeps its content clear of them by
   // the insets iOS gives the page: here an iPhone 14 Pro's, upright.
   describe('on an iPhone', () => {
-    const insets = { top: 59, bottom: 34 }
+    const insets = { top: 59, right: 0, bottom: 34, left: 0 }
     let styles
 
     // A computed length in pixels, or as it is if it is not in pixels:
@@ -1932,24 +1932,30 @@ describe('App', () => {
       return (lighter + 0.05) / (darker + 0.05)
     }
 
-    beforeEach(async () => {
-      // The app's own styles (the tests have none of Quasar's), with the
-      // insets that env() gives on the phone
-      styles = document.head.appendChild(document.createElement('style'))
-      styles.textContent = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf-8')
-      document.documentElement.style.setProperty('--safe-area-top', `${insets.top}px`)
-      document.documentElement.style.setProperty('--safe-area-bottom', `${insets.bottom}px`)
-      // The phone's width, at which the drawer covers the whole screen.
-      // Quasar reads it on a resize, after a moment.
-      window.happyDOM.setViewport({ width: 393, height: 852 })
+    // Holds the phone at a width and a height, with the insets that env()
+    // then gives. Quasar reads the size on a resize, after a moment.
+    async function hold(width, height, sides) {
+      for (const [side, inset] of Object.entries(sides)) {
+        document.documentElement.style.setProperty(`--safe-area-${side}`, `${inset}px`)
+      }
+      window.happyDOM.setViewport({ width, height })
       window.dispatchEvent(new Event('resize'))
       await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+
+    beforeEach(async () => {
+      // The app's own styles (the tests have none of Quasar's)
+      styles = document.head.appendChild(document.createElement('style'))
+      styles.textContent = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf-8')
+      // The phone's width, at which the drawer covers the whole screen
+      await hold(393, 852, insets)
     })
 
     afterEach(async () => {
       styles.remove()
-      document.documentElement.style.removeProperty('--safe-area-top')
-      document.documentElement.style.removeProperty('--safe-area-bottom')
+      for (const side of ['top', 'right', 'bottom', 'left']) {
+        document.documentElement.style.removeProperty(`--safe-area-${side}`)
+      }
       window.happyDOM.setViewport({ width: 1024, height: 768 })
       window.dispatchEvent(new Event('resize'))
       await new Promise((resolve) => setTimeout(resolve, 50))
@@ -2012,6 +2018,101 @@ describe('App', () => {
       // covers the home indicator: the dialog ends 24 px above the keyboard
       dialog.classList.add('q-dialog__inner--keyboard')
       expect(px(getComputedStyle(dialog).paddingBottom)).toBe(24)
+    })
+
+    // Held sideways, the status bar is hidden, and the Dynamic Island or the
+    // notch and the rounded corners are at the left and the right, with the
+    // home indicator still at the bottom: here an iPhone 14 Pro's insets
+    describe('held sideways', () => {
+      const sideways = { top: 0, right: 59, bottom: 21, left: 59 }
+
+      // The left and the right padding of an element, in pixels
+      function sides(element) {
+        const style = getComputedStyle(element)
+        return [px(style.paddingLeft), px(style.paddingRight)]
+      }
+
+      // A width that CSS gives as a length in px, in vw or in % (of the width
+      // of the box it is in), or as the min() of such lengths, in pixels
+      function width(value, whole) {
+        const min = value.match(/^min\((.*)\)$/)
+        if (min) return Math.min(...min[1].split(',').map((term) => width(term.trim(), whole)))
+        const [, number, unit] = value.match(/^([\d.]+)(px|vw|%)$/)
+        return number * { px: 1, vw: window.innerWidth / 100, '%': whole / 100 }[unit]
+      }
+
+      beforeEach(async () => {
+        await hold(852, 393, sideways)
+      })
+
+      it('keeps its header, footer, drawer and game clear of the sides and the home indicator', async () => {
+        addSavedGame('100', 'Tetris')
+        const wrapper = await startAppWithGames()
+        // Before a game is open, the page shows the greeting in its place
+        const greeting = sides(document.querySelector('.status-container'))
+        await openGame(wrapper, '100')
+        // The drawer covers the whole height of the screen, from its left
+        // edge, and is far narrower than the screen
+        await wrapper.find('[aria-label="Menu"]').trigger('click')
+        const drawer = document.querySelector('.q-drawer')
+        expect(drawer.classList).toContain('q-drawer--mobile')
+        const header = document.querySelector('.q-header')
+        const footer = document.querySelector('.q-footer')
+
+        expect({
+          header: sides(header),
+          headerTop: px(getComputedStyle(header).paddingTop),
+          footer: sides(footer),
+          footerBottom: px(getComputedStyle(footer).paddingBottom),
+          greeting,
+          game: sides(wrapper.findComponent(GameContainer).element),
+          drawer: px(getComputedStyle(drawer.querySelector('.q-drawer__content')).paddingLeft),
+          drawerSettings: px(getComputedStyle(wrapper.find('[aria-label="Settings"]').element.closest('.q-item')).paddingBottom),
+        }).toEqual({
+          header: [59, 59],
+          headerTop: 0,
+          footer: [59, 59],
+          footerBottom: 21,
+          greeting: [59, 59],
+          game: [59, 59],
+          drawer: 59,
+          drawerSettings: 16 + 21,
+        })
+      })
+
+      it('fits the box between the sides, and keeps it 90% of the screen wide upright', async () => {
+        const wrapper = await startApp({ Settings: true, UserInput: false }, { attachTo: document.body })
+        // The box's width: it is centred in the footer's toolbar, which fills
+        // the footer inside its padding
+        function box() {
+          const footer = getComputedStyle(document.querySelector('.q-footer'))
+          const toolbar = window.innerWidth - (px(footer.paddingLeft) || 0) - (px(footer.paddingRight) || 0)
+          return width(wrapper.findComponent(QInput).vm.$attrs.style.width, toolbar)
+        }
+
+        expect(box()).toBeLessThanOrEqual(window.innerWidth - sideways.left - sideways.right)
+        await hold(393, 852, insets)
+        expect(box()).toBeCloseTo(0.9 * 393)
+      })
+
+      it('shows dialogs 24 px from the sides and the home indicator, and notifications clear of the sides', async () => {
+        // No provider connects, so Settings opens
+        const wrapper = await startApp({}, { attachTo: document.body })
+        const dialog = document.querySelector('.q-dialog__inner')
+        expect(dialog.textContent).toContain('Settings')
+        const dismiss = wrapper.vm.$q.notify({ message: 'Game saved', position: 'top' })
+        await flushPromises()
+        const list = getComputedStyle(document.querySelector('.q-notifications__list--top'))
+
+        expect({
+          dialog: ['Top', 'Right', 'Bottom', 'Left'].map((side) => px(getComputedStyle(dialog)[`padding${side}`])),
+          notifications: { top: px(list.top), right: px(list.right), left: px(list.left) },
+        }).toEqual({
+          dialog: [24, 24 + 59, 24 + 21, 24 + 59],
+          notifications: { top: 0, right: 59, left: 59 },
+        })
+        dismiss()
+      })
     })
   })
 })

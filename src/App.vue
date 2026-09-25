@@ -602,7 +602,7 @@ watch(gameDescription, (newVal) => {
             <q-page id="page" class="game-page">
                 <Settings v-model="showSettings" :registry="registry" :connectClaude="connectClaude" @providerChanged="onProviderChanged" @providerDisconnected="onProviderDisconnected" />
 
-                <div v-if="state !== 'done'" class="status-container">
+                <div v-if="state !== 'done'" class="status-container safe-area-sides">
                     <div class="text-center q-pa-md">
                         <!-- Idle / Loading -->
                         <template v-if="state === 'idle' || state === 'loading'">
@@ -657,7 +657,7 @@ watch(gameDescription, (newVal) => {
                     v-if="state === 'done'"
                     :key="gamesShown"
                     :game="game"
-                    class="game-container-full"
+                    class="game-container-full safe-area-sides"
                     @startError="fixGame"
                 />
             </q-page>
