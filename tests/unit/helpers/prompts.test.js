@@ -46,6 +46,13 @@ describe('getSystemMessage', () => {
     expect(message).toContain('"controls": "Keyboard AND touch controls"')
   })
 
+  // The app gives the game the keyboard focus when it is ready, when the
+  // player clicks it, and again after a restore
+  it('does not say that key presses reach the game only after a click', () => {
+    expect(message).not.toContain('Key presses reach the game only after the player clicks or taps it.')
+    expect(message).not.toContain('key presses do not reach it yet')
+  })
+
   it('asks for window.__gaimer_onMessage, answering the four messages the app sends', () => {
     expect(message).toContain('window.__gaimer_onMessage')
     for (const type of ['saveState', 'restoreState', 'pause', 'resume']) {
@@ -57,6 +64,10 @@ describe('getSystemMessage', () => {
     expect(message).toContain("__gaimer_sendMessage('stateData', ")
     expect(message).toContain('JSON-serializable')
     expect(message).toMatch(/requestAnimationFrame id in a variable/i)
+  })
+
+  it('asks a restored game to show "Tap or click to continue" and wait for it', () => {
+    expect(message).toContain('\n- After a restore, show "Tap or click to continue" and wait for it.\n')
   })
 
   // Runs the example as a game, with stand-ins for the page, the frames, and

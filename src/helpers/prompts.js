@@ -39,7 +39,6 @@ Your code runs inside a sandboxed iframe with a pre-existing <canvas id="game-ca
 - Keyboard: keydown and keyup on window, with the usual keys (arrows or WASD to move, Space to act); preventDefault() on them.
 - Touch and mouse: pointerdown, pointermove, pointerup and pointercancel on the canvas; click and mouse events do not fire on a tap here. e.clientX and e.clientY are canvas pixels. Track each finger by pointerId, so two can act at once (move and jump).
 - Once a touch is seen (e.pointerType is 'touch'), draw touch controls: big, semi-transparent buttons near the bottom corners (at least 48 px across), or use gestures that suit the game (drag to steer, tap to act).
-- Key presses reach the game only after the player clicks or taps it.
 
 # Look
 
@@ -67,7 +66,7 @@ Your code runs inside a sandboxed iframe with a pre-existing <canvas id="game-ca
 
 - Keep ALL mutable game state (phase, score, best score, level, positions, velocities, timers, entities) in ONE plain, JSON-serializable object: numbers, strings, booleans, arrays and plain objects. No functions, class instances (they lose their methods on restore), DOM refs or circular refs. Always reach it through its variable (game.player.x, never a stored var player = game.player): a restore replaces the object.
 - Set window.__gaimer_onMessage when the code first runs. The app asks for a save as soon as the game is ready, and at any time after, on the start and game-over screens too.
-- After a restore, show "Tap or click to continue" and wait for it: the player has just clicked outside the game, so key presses do not reach it yet.
+- After a restore, show "Tap or click to continue" and wait for it.
 - Keep the requestAnimationFrame id in a variable so pause and resume work. It and the frame clock stay out of the state.
 
 Example:
