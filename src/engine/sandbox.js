@@ -85,9 +85,48 @@ __canvas.addEventListener('touchstart', function(e) { e.preventDefault(); }, { p
 __canvas.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
 __canvas.addEventListener('touchend', function(e) { e.preventDefault(); }, { passive: false });
 
-// Message handler for parent communication
+// The app pauses the game while its window is hidden, and while the game's
+// controls or rules cover it. The game's frames stop then, but a sound it
+// has started, such as music that loops, would play on. So the page records
+// every AudioContext the game creates, and suspends those that are running
+// when the game is paused. On resume, it resumes those it suspended and no
+// other: a context the game suspended itself, to mute its sound, stays
+// suspended. A call fails only for a context the game has closed: that is
+// no error of the game's, and the page does not report it.
+var __gaimer_audioContexts = [];
+var __gaimer_suspendedAudioContexts = [];
+['AudioContext', 'webkitAudioContext'].forEach(function(name) {
+  var NativeAudioContext = window[name];
+  if (typeof NativeAudioContext !== 'function') return;
+  window[name] = class extends NativeAudioContext {
+    constructor() {
+      super(...arguments);
+      __gaimer_audioContexts.push(this);
+    }
+  };
+});
+function __gaimer_ignoreError() {}
+function __gaimer_pauseSound() {
+  __gaimer_audioContexts.forEach(function(context) {
+    if (context.state !== 'running') return;
+    __gaimer_suspendedAudioContexts.push(context);
+    context.suspend().catch(__gaimer_ignoreError);
+  });
+}
+function __gaimer_resumeSound() {
+  __gaimer_suspendedAudioContexts.forEach(function(context) {
+    context.resume().catch(__gaimer_ignoreError);
+  });
+  __gaimer_suspendedAudioContexts = [];
+}
+
+// Message handler for parent communication. The page pauses and resumes the
+// game's sound before the game's own handler runs, so that an error the
+// handler throws cannot keep the sound playing.
 window.addEventListener('message', function(event) {
   if (event.data && event.data.type) {
+    if (event.data.type === 'pause') __gaimer_pauseSound();
+    if (event.data.type === 'resume') __gaimer_resumeSound();
     if (typeof window.__gaimer_onMessage === 'function') {
       window.__gaimer_onMessage(event.data);
     }

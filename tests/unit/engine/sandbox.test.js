@@ -23,8 +23,10 @@ function scriptUrls(srcdoc) {
 // page runs in a window of its own, whose document holds the page's canvas:
 // an event on the canvas goes through the window, whose capture listeners
 // run first, and an error that a listener throws goes to the window's error
-// listeners, as in a browser. The window is closed when the test ends.
-function runHarness(srcdoc, { game = false, inWindow = false } = {}) {
+// listeners, as in a browser. The window is closed when the test ends. With
+// globals, the window has those properties when the page's scripts run, as a
+// browser's window has AudioContext.
+function runHarness(srcdoc, { game = false, inWindow = false, globals = {} } = {}) {
   const parsed = parsePage(srcdoc)
   const win = inWindow ? new Window() : new EventTarget()
   const page = inWindow ? win.document : parsed
@@ -32,6 +34,7 @@ function runHarness(srcdoc, { game = false, inWindow = false } = {}) {
     onTestFinished(() => win.happyDOM.close())
     page.body.append(page.importNode(parsed.querySelector('canvas')))
   }
+  Object.assign(win, globals)
   Object.defineProperty(page, 'currentScript', { value: parsed.querySelector('script') })
   const received = []
   const parent = { postMessage: vi.fn((message) => received.push(structuredClone(message))) }
@@ -65,6 +68,45 @@ function tap(win) {
 // goes to the page's body, which has the focus.
 function press(win, key) {
   win.document.body.dispatchEvent(playerInput(new win.KeyboardEvent('keydown', { key, bubbles: true })))
+}
+
+// The app sends a message, such as 'pause', to a page run in a window of its
+// own
+function send(win, type) {
+  win.dispatchEvent(new win.MessageEvent('message', { data: { type, data: {} } }))
+}
+
+// A stand-in for the browser's AudioContext, which records the calls made on
+// it. As in a browser, a new one is running, suspend() and resume() return a
+// promise, and resume() rejects once the context is closed. Its state changes
+// at once, where a browser's may change a moment later.
+class FakeAudioContext {
+  constructor(options) {
+    this.options = options
+    this.state = 'running'
+    this.calls = []
+  }
+
+  suspend() {
+    this.calls.push('suspend')
+    this.state = 'suspended'
+    return Promise.resolve()
+  }
+
+  resume() {
+    this.calls.push('resume')
+    if (this.state === 'closed') {
+      return Promise.reject(new DOMException('Cannot resume a closed AudioContext.', 'InvalidStateError'))
+    }
+    this.state = 'running'
+    return Promise.resolve()
+  }
+
+  close() {
+    this.calls.push('close')
+    this.state = 'closed'
+    return Promise.resolve()
+  }
 }
 
 // The error event Chromium fires for a syntax error V8 found in a script,
@@ -861,6 +903,117 @@ window.addEventListener('keydown', play);`)
     // The player's own click
     tap(win)
     expect(focus).toHaveBeenCalledOnce()
+  })
+
+  it("the game page suspends the game's sound while the app has the game paused, and resumes it when the game resumes", () => {
+    // The game makes its sound with an AudioContext it creates on the
+    // player's first input, as the system message asks. Its own handler
+    // would stop its frames on 'pause'.
+    const srcdoc = loadSrcdoc(`var audio = null;
+document.getElementById('game-canvas').addEventListener('pointerdown', function () {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  window.audio = audio;
+});
+window.messages = [];
+window.__gaimer_onMessage = function (msg) {
+  window.messages.push(msg.type);
+};`)
+    const { win, received } = runHarness(srcdoc, { game: true, inWindow: true, globals: { AudioContext: FakeAudioContext } })
+    tap(win)
+    const { audio } = win
+    // The game has the browser's AudioContext, made as it asked
+    expect(audio).toBeInstanceOf(FakeAudioContext)
+    expect(audio).toBeInstanceOf(win.AudioContext)
+    expect(audio.options).toEqual({ latencyHint: 'interactive' })
+
+    // The player opens the game's controls, then hides the window: each
+    // pauses the game
+    send(win, 'pause')
+    expect(audio.calls).toEqual(['suspend'])
+    send(win, 'pause')
+    expect(audio.calls).toEqual(['suspend'])
+    // The player shows the window, then closes the controls, and the game
+    // resumes
+    send(win, 'resume')
+    expect(audio.calls).toEqual(['suspend', 'resume'])
+    expect(audio.state).toBe('running')
+
+    // The game's own handler got each message, and nothing went wrong
+    expect(win.messages).toEqual(['pause', 'pause', 'resume'])
+    expect(received).toEqual([{ type: 'ready', data: {} }, { type: 'firstInput', data: {} }])
+  })
+
+  it('the game page does the same for a game that makes its sound with webkitAudioContext, as in an older WebKit', () => {
+    const srcdoc = loadSrcdoc('window.audio = new (window.AudioContext || window.webkitAudioContext)();')
+    const { win } = runHarness(srcdoc, { game: true, inWindow: true, globals: { webkitAudioContext: FakeAudioContext } })
+    send(win, 'pause')
+    expect(win.audio.calls).toEqual(['suspend'])
+    send(win, 'resume')
+    expect(win.audio.calls).toEqual(['suspend', 'resume'])
+  })
+
+  it('the game page leaves a context the game suspended itself suspended, through the pause and after it', () => {
+    // The game has music and effects, and the player has muted the effects
+    const srcdoc = loadSrcdoc(`window.music = new window.AudioContext();
+window.effects = new window.AudioContext();
+window.effects.suspend();`)
+    const { win } = runHarness(srcdoc, { game: true, inWindow: true, globals: { AudioContext: FakeAudioContext } })
+    send(win, 'pause')
+    send(win, 'resume')
+    expect(win.music.calls).toEqual(['suspend', 'resume'])
+    // Only the game's own call
+    expect(win.effects.calls).toEqual(['suspend'])
+    expect(win.effects.state).toBe('suspended')
+
+    // The game mutes its music too, as the player asks, and is paused again
+    win.music.suspend()
+    send(win, 'pause')
+    send(win, 'resume')
+    expect(win.music.calls).toEqual(['suspend', 'resume', 'suspend'])
+    expect(win.music.state).toBe('suspended')
+  })
+
+  it("the game page suspends the game's sound on 'pause' even when the game's own handler throws", () => {
+    const srcdoc = loadSrcdoc(`window.audio = new window.AudioContext();
+window.__gaimer_onMessage = function (msg) {
+  if (msg.type === 'pause') stopMusic();
+};`)
+    const { win, received } = runHarness(srcdoc, { game: true, inWindow: true, globals: { AudioContext: FakeAudioContext } })
+    send(win, 'pause')
+    expect(win.audio.calls).toEqual(['suspend'])
+    // The page reports the game's error
+    expect(received).toEqual([
+      { type: 'ready', data: {} },
+      { type: 'error', data: { message: 'stopMusic is not defined', stack: expect.any(String), line: 3, column: 29 } }
+    ])
+  })
+
+  it('the game page does not report a call of its own that fails, as its resume does for a context the game closed on pause', async () => {
+    // In the page, a rejection that no code handles fires the window's
+    // unhandledrejection event, and the page would report it to the app as
+    // the game's error. Here Node tells of it, after a turn of the event loop.
+    const unhandled = []
+    const onUnhandled = (reason) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    onTestFinished(() => process.off('unhandledRejection', onUnhandled))
+    // The game closes its sound on 'pause', and makes it again on 'resume'
+    const srcdoc = loadSrcdoc(`window.audio = new window.AudioContext();
+window.__gaimer_onMessage = function (msg) {
+  if (msg.type === 'pause') window.audio.close();
+  if (msg.type === 'resume') window.audio = new window.AudioContext();
+};`)
+    const { win, received } = runHarness(srcdoc, { game: true, inWindow: true, globals: { AudioContext: FakeAudioContext } })
+    const closed = win.audio
+
+    send(win, 'pause')
+    send(win, 'resume')
+    await new Promise((resolve) => setTimeout(resolve))
+
+    expect(closed.calls).toEqual(['suspend', 'close', 'resume'])
+    expect(win.audio).not.toBe(closed)
+    expect(win.audio.state).toBe('running')
+    expect(unhandled).toEqual([])
+    expect(received).toEqual([{ type: 'ready', data: {} }])
   })
 
   it('loadGame() keeps "</script" in the game code as written, and it cannot end the script early', () => {
