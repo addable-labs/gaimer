@@ -44,6 +44,14 @@
     --safe-area-right: env(safe-area-inset-right, 0px);
 }
 
+/* The page is dark from its first frame, in Quasar's dark page colour
+   (#121212), which the app's body has once the app runs. Quasar gives the
+   body that colour from the app's script; until then, the page would be
+   white, and on an iPhone the status bar's white text would be on white. */
+html {
+    background: var(--q-dark-page);
+}
+
 /* The app keeps clear of the safe areas of an iPhone's screen. Held
    upright, they are the status bar with the Dynamic Island or notch at the
    top, and the home indicator at the bottom. Held sideways, the status bar

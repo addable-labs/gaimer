@@ -1998,6 +1998,25 @@ describe('App', () => {
       expect(contrast('#FFFFFF', band)).toBeGreaterThanOrEqual(4.5)
     })
 
+    // Before the app's script runs, the page has only its styles, and Quasar
+    // has not yet given the body its dark colour: the status bar's white text
+    // is over the page's own colour, which also fills a desktop window
+    it('is dark under the status bar\'s white text from the first frame, before the app\'s script runs', () => {
+      // Quasar's styles, before the app's own as in the built app
+      const quasarStyles = document.head.insertBefore(document.createElement('style'), styles)
+      quasarStyles.textContent = readFileSync(resolve(__dirname, '../../node_modules/quasar/dist/quasar.css'), 'utf-8')
+      onTestFinished(() => quasarStyles.remove())
+      const page = getComputedStyle(document.documentElement).backgroundColor
+      // Once the app runs, Quasar marks the body for its dark mode, in which
+      // main.js starts the app
+      document.body.classList.add('body--dark')
+      onTestFinished(() => document.body.classList.remove('body--dark'))
+
+      // The page does not change colour as the app starts
+      expect(getComputedStyle(document.body).backgroundColor).toBe(page)
+      expect(contrast('#FFFFFF', page)).toBeGreaterThanOrEqual(4.5)
+    })
+
     it('shows dialogs 24 px from the status bar and the home indicator, and notifications below the status bar', async () => {
       // No provider connects, so Settings opens
       const wrapper = await startApp({}, { attachTo: document.body })
