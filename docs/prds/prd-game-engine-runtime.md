@@ -1,5 +1,13 @@
 # PRD: Game Engine Runtime
 
+**Status on 2026-09-25: Partly built.** This is the plan as written on 2026-03-04. What the code does now is in [architecture.md](../architecture.md).
+
+- R1, sandboxed execution: built, in `src/engine/sandbox.js`. Both of the page's scripts load from `data:` URLs, so its policy also allows `data:` scripts; it allows `blob:` and `data:` images too. The page reports a game's errors with their line and column in the game's code, when it can tell, and a new or changed game that fails as it starts goes back once to be fixed. There is no memory-leak test.
+- R2, GaimerRuntime API: not built. Games draw on the canvas themselves, and talk to the app through `__gaimer_sendMessage` and `window.__gaimer_onMessage`.
+- R3, touch controls: not built. The page stops the browser's own touch handling on the canvas, and the system message asks each game to handle touch and keyboard itself.
+- R4, lifecycle: partly built. The app asks the game to pause while the window is hidden and to resume after, and switching games destroys the old game's iframe. A resized window or rotated device scales the game to fit and keeps it running: the canvas keeps its size and gets no resize message. There is no pause overlay. Games may make sound, as the system message asks for short sound effects, and nothing in the app silences it while the game is paused: the system message has a paused game stop only its frame loop.
+- R5, system prompt for the runtime: not built. The system message in `src/helpers/prompts.js` has games draw on the canvas directly, and requires the save/restore contract in [save-restore-support.md](../features/save-restore-support.md).
+
 > Feature: Lightweight game runtime that AI-generated code targets, with touch support, sandboxed execution, and game lifecycle management.
 
 ## Problem Statement

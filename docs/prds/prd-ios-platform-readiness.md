@@ -1,5 +1,15 @@
 # PRD: iOS Platform Readiness
 
+**Status on 2026-09-25: Partly built.** This is the plan as written on 2026-03-04, with its bundle identifier updated on 2026-09-25. What the code does now is in [architecture.md](../architecture.md).
+
+- R1, Tauri and the Xcode project: partly built. Tauri is at stable 2.x, and the bundle identifier is `se.addablelabs.gaimer`. The Xcode project is not committed (`src-tauri/gen/` is ignored): CI installs XcodeGen, not CocoaPods, generates the project with `yarn tauri ios init`, and builds it for the simulator. The minimum iOS version in `src-tauri/tauri.conf.json` is 15.0, not 17.4. There is no signing setup, no device build and no release IPA.
+- R2, icons and launch screen: not built. No iOS icon set or launch screen is committed.
+- R3, safe areas: partly built. `index.html` sets `viewport-fit=cover`, `src/styles.css` defines the safe-area insets, and the header, the footer, the drawer, notifications and dialogs keep clear of the status bar and the home indicator. The side insets in landscape are not handled, and nothing hides the status bar during play.
+- R4, keyboard: not built, apart from taking the focus off the description field after sending (`src/components/UserInput.vue`, PR #48; the earlier `document.getElementById` call found no element and never did, so step 5 below is superseded), not yet checked on an iOS device.
+- R5, performance and memory: not built; nothing has been measured.
+- R6, App Store submission: not built; none of it is in the repository.
+- R7, Content Security Policy: built, with other values than planned. See [architecture.md](../architecture.md#content-security-policy).
+
 > Feature: Prepare Gaimer for Apple App Store submission with full iOS platform compliance.
 
 ## Problem Statement
